@@ -1,0 +1,50 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  listings  Listing[]
+}
+
+model Listing {
+  id          String   @id @default(cuid())
+  title       String
+  city        String
+  price       Int      // monthly price in cents (e.g., 150000 = $1500.00)
+  beds        Int
+  baths       Int
+  status      Status   @default(APPROVED) // draft|pending|approved later; approved for now
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // optional: link to a landlord
+  landlordId  String?
+  landlord    User?    @relation(fields: [landlordId], references: [id])
+}
+
+enum Status {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum Role {
+  USER
+  LANDLORD
+  ADMIN
+}
