@@ -26,14 +26,17 @@ model Listing {
   price       Int      // monthly price in cents (e.g., 150000 = $1500.00)
   beds        Int
   baths       Int
-  status      Status   @default(APPROVED) // draft|pending|approved later; approved for now
+  status      Status   @default(APPROVED)
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  // optional: link to a landlord
   landlordId  String?
   landlord    User?    @relation(fields: [landlordId], references: [id])
+
+  // ✅ Media (SQLite‑compatible)
+images   Json?      // store string[] as JSON (e.g. ["https://...","https://..."])
+  videoUrl    String?   // optional video URL
 }
 
 enum Status {
