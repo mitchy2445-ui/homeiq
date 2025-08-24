@@ -1,0 +1,4 @@
+{
+  "files.associations": { "*.css": "postcss" },
+  "tailwindCSS.experimental.configFile": "tailwind.config.ts"
+}
