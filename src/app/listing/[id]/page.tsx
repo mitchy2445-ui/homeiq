@@ -6,20 +6,27 @@ import { prisma as db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 
 // ---- helpers ----
-function formatCurrency(n: number) {
-  return n.toLocaleString("en-CA", {
+function formatCurrencyFromCents(cents: number) {
+  return (cents / 100).toLocaleString("en-CA", {
     style: "currency",
     currency: "CAD",
     maximumFractionDigits: 0,
   });
 }
 
+// Safely coerce Prisma Json -> string[]
+function jsonToStringArray(v: Prisma.JsonValue | null | undefined): string[] {
+  return Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]) : [];
+}
+
 type PageProps = { params: { id: string } };
 
-// Strong types for our queries
-type ListingWithLandlord = Prisma.ListingGetPayload<{
-  include: { landlord: true };
-}>;
+// Strong types for our queries (media fields OPTIONAL to satisfy older client types)
+type ListingWithLandlordAndMaybeMedia =
+  Prisma.ListingGetPayload<{ include: { landlord: true } }> & {
+    images?: Prisma.JsonValue | null;
+    videoUrl?: string | null;
+  };
 
 type RelatedLite = {
   id: string;
@@ -34,14 +41,14 @@ export default async function ListingPage({ params }: PageProps) {
   const id = params.id;
 
   // Fetch the listing + landlord (typed)
-  const listing: ListingWithLandlord | null = await db.listing.findUnique({
+  const listing: ListingWithLandlordAndMaybeMedia | null = await db.listing.findUnique({
     where: { id },
     include: { landlord: true },
   });
 
   if (!listing) notFound();
 
-  // A few related ones from the same city (typed)
+  // Related listings from same city
   const related: RelatedLite[] = await db.listing.findMany({
     where: { city: listing.city, NOT: { id: listing.id } },
     select: { id: true, title: true, city: true, price: true, beds: true, baths: true },
@@ -49,19 +56,22 @@ export default async function ListingPage({ params }: PageProps) {
     orderBy: { price: "asc" },
   });
 
-  // Placeholder media until you add images/videoUrl fields to Prisma
-  const images: string[] = [
+  // Prefer DB media; fallback to placeholders if empty
+  const placeholderImages: string[] = [
     "https://picsum.photos/seed/homeiq1/1200/800",
     "https://picsum.photos/seed/homeiq2/800/600",
     "https://picsum.photos/seed/homeiq3/800/600",
     "https://picsum.photos/seed/homeiq4/800/600",
     "https://picsum.photos/seed/homeiq5/800/600",
   ];
-  const videoUrl: string | undefined = undefined;
+
+  const dbImages = jsonToStringArray(listing.images ?? null);
+  const images = dbImages.length > 0 ? dbImages.slice(0, 5) : placeholderImages;
+
+  const videoUrl = listing.videoUrl ?? undefined;
 
   return (
     <main className="min-h-screen">
-      {/* Header spacer (if Header is sticky) */}
       <div className="h-2" />
 
       <section className="max-w-6xl mx-auto px-4 py-6 md:py-10">
@@ -92,7 +102,7 @@ export default async function ListingPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* Media gallery (next/image) */}
+        {/* Media gallery */}
         <div className="mt-5 grid grid-cols-1 md:grid-cols-4 md:grid-rows-2 gap-3">
           {/* Big tile */}
           <div className="md:col-span-2 md:row-span-2 overflow-hidden rounded-2xl relative h-72 md:h-[28rem]">
@@ -138,9 +148,8 @@ export default async function ListingPage({ params }: PageProps) {
             <div className="mb-8">
               <h2 className="text-xl font-semibold mb-2">About this home</h2>
               <p className="text-gray-700 leading-7">
-                A bright, comfortable place in {listing.city}. This listing is part of our
-                curated seed data—fill in description and amenities later when you expand the
-                Prisma schema. For now, beds/baths and price are accurate from your database.
+                A bright, comfortable place in {listing.city}. For now, beds/baths and price are from your database.
+                Add a richer description and amenities as your schema grows.
               </p>
             </div>
 
@@ -158,7 +167,7 @@ export default async function ListingPage({ params }: PageProps) {
             <div className="mb-8">
               <h3 className="text-lg font-semibold mb-3">Amenities</h3>
               <div className="flex flex-wrap gap-2">
-                {["Wi‑Fi", "Heating", "In‑unit laundry", "Parking"].map((a) => (
+                {["Wi-Fi", "Heating", "In-unit laundry", "Parking"].map((a) => (
                   <span
                     key={a}
                     className="text-sm rounded-full border px-3 py-1.5 bg-white"
@@ -196,7 +205,7 @@ export default async function ListingPage({ params }: PageProps) {
               <div className="flex items-end justify-between">
                 <div>
                   <div className="text-2xl font-semibold">
-                    {formatCurrency(listing.price)}{" "}
+                    {formatCurrencyFromCents(listing.price)}{" "}
                     <span className="text-base font-normal text-gray-600">/ mo</span>
                   </div>
                   <div className="text-gray-600 text-sm mt-1">
@@ -235,7 +244,7 @@ export default async function ListingPage({ params }: PageProps) {
                   <div className="aspect-[4/3] bg-gray-100" />
                   <div className="p-4">
                     <div className="font-semibold">
-                      {formatCurrency(r.price)}{" "}
+                      {formatCurrencyFromCents(r.price)}{" "}
                       <span className="text-gray-600 font-normal">/ mo</span>
                     </div>
                     <div className="text-sm text-gray-600 mt-1">

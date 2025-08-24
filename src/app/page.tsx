@@ -1,5 +1,7 @@
+// app/page.tsx
 import { prisma } from "@/lib/db";
 import { HOME_CITIES } from "@/config/cities";
+import CityRow from "@/components/CityRow"; // ⬅️ NEW
 
 export const dynamic = "force-dynamic"; // simple: fetch fresh on dev
 
@@ -9,7 +11,7 @@ function formatPrice(cents: number) {
 
 export default async function Home() {
   // fetch approved listings for the cities we feature
-  const cities = HOME_CITIES.map(c => c.city);
+  const cities = HOME_CITIES.map((c) => c.city);
   const listings = await prisma.listing.findMany({
     where: { status: "APPROVED", city: { in: cities } },
     orderBy: { createdAt: "desc" },
@@ -19,13 +21,11 @@ export default async function Home() {
   // group by city for rendering under each tagline
   const byCity = new Map<string, typeof listings>();
   for (const c of cities) byCity.set(c, []);
-  for (const l of listings) {
-    byCity.set(l.city, [...(byCity.get(l.city) ?? []), l]);
-  }
+  for (const l of listings) byCity.set(l.city, [ ...(byCity.get(l.city) ?? []), l ]);
 
   return (
     <main className="min-h-screen">
-      {/* Hero */}
+      {/* Hero (kept comfy width) */}
       <section className="max-w-[1200px] mx-auto px-4 md:px-6 lg:px-8 mt-10 md:mt-16">
         <h1 className="text-2xl md:text-4xl font-semibold max-w-[40ch]">
           Smarter rentals with video tours, verified landlords, and instant messaging.
@@ -35,45 +35,23 @@ export default async function Home() {
         </p>
       </section>
 
-      {/* Rows per city/tagline */}
-      <section className="max-w-[1200px] mx-auto px-4 md:px-6 lg:px-8 mt-10 space-y-8">
+      {/* FULL‑BLEED rows per city/tagline */}
+      <div className="mt-10 space-y-8">
         {HOME_CITIES.map(({ city, tagline }) => {
           const rows = byCity.get(city) ?? [];
-          return (
-            <div key={city}>
-              <h2 className="text-lg md:text-xl font-semibold mb-3">
-                {tagline} &gt;
-              </h2>
-              <div className="overflow-x-auto">
-                <div className="flex gap-4 min-w-max">
-                  {rows.length === 0 ? (
-                    <div className="text-sm text-gray-500">No listings yet.</div>
-                  ) : (
-                    rows.slice(0, 8).map((l) => (
-                      <a
-                        key={l.id}
-                        href={`/listing/${l.id}`}
-                        className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition w-[260px] shrink-0 overflow-hidden"
-                      >
-                        <div className="relative aspect-[4/3] bg-gray-200" />
-                        <div className="p-3">
-                          <div className="font-semibold">{formatPrice(l.price)}</div>
-                          <div className="text-sm text-gray-600">
-                            {l.beds} bd · {l.baths} ba
-                          </div>
-                          <div className="text-sm text-gray-500">{l.title}</div>
-                        </div>
-                      </a>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          );
+          const items = rows.slice(0, 8).map((l) => ({
+            id: l.id,
+            href: `/listing/${l.id}`,
+            priceText: formatPrice(l.price),
+            metaText: `${l.beds} bd · ${l.baths} ba`,
+            title: l.title,
+            // imageSrc: l.imageUrl, // wire up when ready
+          }));
+          return <CityRow key={city} title={tagline} items={items} />;
         })}
-      </section>
+      </div>
 
-      {/* Landlord CTA */}
+      {/* Landlord CTA (kept comfy width) */}
       <section className="max-w-[1200px] mx-auto px-4 md:px-6 lg:px-8 mt-12 mb-16">
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="text-gray-700">

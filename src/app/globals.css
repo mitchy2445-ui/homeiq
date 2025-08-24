@@ -4,8 +4,6 @@
 
 html, body, #__next { height: 100%; }
 body { @apply bg-white text-gray-900 antialiased; }
-
-/* Reusable utilities */
 .container-page { @apply max-w-[1200px] mx-auto px-4 md:px-6 lg:px-8; }
-.card           { @apply bg-white rounded-2xl shadow-card border border-gray-100; }
-.card-hover     { @apply transition transform duration-150 ease-in-out hover:shadow-hover hover:-translate-y-[2px]; }
+.card { @apply bg-white rounded-2xl shadow-card border border-gray-100; }
+.card-hover { @apply transition transform duration-150 ease-in-out hover:shadow-hover hover:-translate-y-[2px]; }
