@@ -13,17 +13,19 @@ model User {
   email     String   @unique
   name      String?
   role      Role     @default(USER)
+  passwordHash  String?        // 👈 add
+  emailVerified DateTime? 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  listings  Listing[]
+  listings Listing[]
 }
 
 model Listing {
   id          String   @id @default(cuid())
   title       String
   city        String
-  price       Int      // monthly price in cents (e.g., 150000 = $1500.00)
+  price       Int // monthly price in cents (e.g., 150000 = $1500.00)
   beds        Int
   baths       Int
   status      Status   @default(APPROVED)
@@ -31,12 +33,12 @@ model Listing {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  landlordId  String?
-  landlord    User?    @relation(fields: [landlordId], references: [id])
+  landlordId String?
+  landlord   User?   @relation(fields: [landlordId], references: [id])
 
   // ✅ Media (SQLite‑compatible)
-images   Json?      // store string[] as JSON (e.g. ["https://...","https://..."])
-  videoUrl    String?   // optional video URL
+  images   Json? // store string[] as JSON (e.g. ["https://...","https://..."])
+  videoUrl String? // optional video URL
 }
 
 enum Status {
