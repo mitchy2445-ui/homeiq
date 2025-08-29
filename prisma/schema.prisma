@@ -21,13 +21,47 @@ enum Role {
   ADMIN
 }
 
-/** NEW enums for neighborhood/amenities + ID state */
-enum NeighborhoodVibe { QUIET MODERATE BUSY }
-enum AreaType { URBAN SUBURBAN RURAL }
-enum ParkingType { STREET ON_SITE NONE }
-enum PetPolicy { NONE CATS DOGS CATS_AND_DOGS RESTRICTED }
-enum LaundryType { IN_UNIT SHARED NONE }
-enum IdStatus { UNVERIFIED PENDING VERIFIED REJECTED }
+/**
+ * NEW enums
+ */
+enum NeighborhoodVibe {
+  QUIET
+  MODERATE
+  BUSY
+}
+
+enum AreaType {
+  URBAN
+  SUBURBAN
+  RURAL
+}
+
+enum ParkingType {
+  STREET
+  ON_SITE
+  NONE
+}
+
+enum PetPolicy {
+  NONE
+  CATS
+  DOGS
+  CATS_AND_DOGS
+  RESTRICTED
+}
+
+enum LaundryType {
+  IN_UNIT
+  SHARED
+  NONE
+}
+
+enum IdStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
 
 model User {
   id            String    @id @default(cuid())
@@ -42,7 +76,7 @@ model User {
   // Relations
   listings           Listing[]
   verificationTokens VerificationToken[]
-  landlordProfile    LandlordProfile?      // NEW back-relation (optional)
+  landlordProfile    LandlordProfile?
 }
 
 model VerificationToken {
@@ -52,63 +86,64 @@ model VerificationToken {
   expires   DateTime
   createdAt DateTime @default(now())
 
-  // Relation
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-/** NEW: Landlord profile & verification scaffold */
+/**
+ * NEW: landlord onboarding & verification
+ */
 model LandlordProfile {
-  id               String   @id @default(cuid())
-  userId           String   @unique
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  fullName         String
-  phone            String
-  phoneVerifiedAt  DateTime?
-  dob              DateTime?
-  addressLine1     String
-  addressLine2     String?
-  city             String
-  region           String?
-  country          String
-  postal           String
+  fullName        String
+  phone           String
+  phoneVerifiedAt DateTime?
+  dob             DateTime?
+  addressLine1    String
+  addressLine2    String?
+  city            String
+  region          String?
+  country         String
+  postal          String
 
-  idStatus         IdStatus @default(UNVERIFIED)
-  kycProvider      String?
-  kycRef           String?
-  addressDocUrl    String?
+  idStatus      IdStatus @default(UNVERIFIED)
+  kycProvider   String?
+  kycRef        String?
+  addressDocUrl String?
 
-  // Dev-mode OTP (so we can verify flow without Twilio)
-  phoneOtpHash     String?
-  phoneOtpExpires  DateTime?
+  // dev-mode OTP
+  phoneOtpHash    String?
+  phoneOtpExpires DateTime?
 
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Listing {
   id          String   @id @default(cuid())
   title       String
   city        String
-  price       Int      // monthly price in cents (e.g., 150000 = $1500.00)
+  price       Int // monthly price in cents
   beds        Int
   baths       Int
-  status      Status   @default(DRAFT)   // CHANGED default to DRAFT to fit the wizard flow
+  status      Status   @default(DRAFT) // safer default for the wizard
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   landlordId String?
-  landlord   User?     @relation(fields: [landlordId], references: [id])
+  landlord   User?   @relation(fields: [landlordId], references: [id])
 
-  // ✅ Media (SQLite-compatible)
-  images     Json?     // string[] (e.g. ["https://...","https://..."])
-  videoUrl   String?   // optional video URL
+  // Media
+  images   Json? // string[]
+  videoUrl String?
 
-  // ✅ NEW: property metadata & neighborhood/amenities
-  propertyType           String?
-  neighborhoodVibe       NeighborhoodVibe?
-  areaType               AreaType?
+  // Property metadata & neighborhood/amenities
+  propertyType     String?
+  neighborhoodVibe NeighborhoodVibe?
+  areaType         AreaType?
 
   distanceBusMeters      Int?
   distanceGroceryMeters  Int?
@@ -117,21 +152,21 @@ model Listing {
   distancePharmacyMeters Int?
   distanceGymMeters      Int?
 
-  parkingType            ParkingType?
-  petPolicy              PetPolicy?
-  accessibility          Json?      // string[]
-  laundry                LaundryType?
+  parkingType   ParkingType?
+  petPolicy     PetPolicy?
+  accessibility Json? // string[]
+  laundry       LaundryType?
 
-  heating                String?
-  cooling                String?
-  furnished              Boolean?
+  heating   String?
+  cooling   String?
+  furnished Boolean?
 
-  utilitiesIncluded      Json?      // string[]
-  minLeaseMonths         Int?
-  maxOccupants           Int?
-  smokingAllowed         Boolean?
-  houseRules             String?
+  utilitiesIncluded Json? // string[]
+  minLeaseMonths    Int?
+  maxOccupants      Int?
+  smokingAllowed    Boolean?
+  houseRules        String?
 
-  // Optional deposit for policies step
-  depositCents           Int?
+  // optional deposit used by pricing step
+  depositCents Int?
 }
