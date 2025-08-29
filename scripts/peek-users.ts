@@ -1,4 +1,8 @@
 // scripts/peek-users.ts
+import { config } from "dotenv";
+import { existsSync } from "fs";
+config({ path: existsSync(".env.local") ? ".env.local" : ".env" });
+
 import { prisma } from "../src/lib/db";
 
 async function main() {
@@ -8,7 +12,7 @@ async function main() {
   });
   for (const u of users) {
     const hasHash = !!u.passwordHash && u.passwordHash.startsWith("$2");
-    console.log(`${u.email}  | verified=${!!u.emailVerified} | hash=${hasHash}`);
+    console.log(`${u.email} | verified=${!!u.emailVerified} | hash=${hasHash}`);
   }
 }
 main().finally(() => prisma.$disconnect());
