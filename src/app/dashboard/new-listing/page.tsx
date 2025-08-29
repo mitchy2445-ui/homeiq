@@ -1,8 +1,13 @@
 // src/app/dashboard/new-listing/page.tsx
 import { prisma as db } from "@/lib/db";
+import { requireSession } from "@/lib/auth";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { $Enums } from "@prisma/client";
+
+export const runtime = "nodejs";
+// Make sure cookies are read on every request (no static caching)
+export const dynamic = "force-dynamic";
 
 const ListingInput = z.object({
   title: z.string().min(3),
@@ -19,52 +24,72 @@ const ListingInput = z.object({
     .or(z.literal("").transform(() => undefined)),
 });
 
-async function createListingAction(formData: FormData) {
-  "use server";
+export default async function NewListingPage() {
+  // ✅ Redirects to /auth/login if not logged in (and preserves return path)
+  const session = await requireSession("/dashboard/new-listing");
 
-  const data = Object.fromEntries(formData) as Record<string, string>;
-  const parsed = ListingInput.safeParse(data);
-
-  if (!parsed.success) {
-    // ✅ ZodError.issues, not .errors
-    const msg = parsed.error.issues
-      .map((i) => `${i.path.join(".")}: ${i.message}`)
-      .join(" | ");
-    throw new Error(`Invalid input: ${msg}`);
+  // (optional) role gate — show a friendly message or redirect as you wish
+  if (session.role !== "LANDLORD" && session.role !== "ADMIN") {
+    return (
+      <main className="min-h-screen max-w-2xl mx-auto px-4 py-8">
+        <h1 className="text-2xl md:text-3xl font-semibold">Not authorized</h1>
+        <p className="text-gray-600 mt-2">
+          You need a landlord account to create listings.
+        </p>
+      </main>
+    );
   }
 
-  const v = parsed.data;
+  // Server action (re-check session inside the action)
+  async function createListingAction(formData: FormData) {
+    "use server";
 
-  // price in cents
-  const priceCents = Math.round(v.price * 100);
+    const s = await requireSession("/dashboard/new-listing");
+    if (s.role !== "LANDLORD" && s.role !== "ADMIN") {
+      throw new Error("Unauthorized");
+    }
 
-  // normalize images from CSV/newlines to string[]
-  const images =
-    v.imagesCsv
-      ?.split(/[\n,]/g)
-      .map((s) => s.trim())
-      .filter(Boolean) ?? [];
+    const data = Object.fromEntries(formData) as Record<string, string>;
+    const parsed = ListingInput.safeParse(data);
 
-  const listing = await db.listing.create({
-    data: {
-      title: v.title,
-      city: v.city,
-      price: priceCents,
-      beds: v.beds,
-      baths: v.baths,
-      description: v.description,
-      images, // JSON column (string[])
-      videoUrl: v.videoUrl,
-      status: $Enums.Status.PENDING, // enum-safe
-      // landlordId: ... (wire this after auth)
-    },
-    select: { id: true },
-  });
+    if (!parsed.success) {
+      const msg = parsed.error.issues
+        .map((i) => `${i.path.join(".")}: ${i.message}`)
+        .join(" | ");
+      throw new Error(`Invalid input: ${msg}`);
+    }
 
-  redirect(`/listing/${listing.id}`);
-}
+    const v = parsed.data;
 
-export default function NewListingPage() {
+    // price in cents
+    const priceCents = Math.round(v.price * 100);
+
+    // normalize images from CSV/newlines to string[]
+    const images =
+      v.imagesCsv
+        ?.split(/[\n,]/g)
+        .map((s) => s.trim())
+        .filter(Boolean) ?? [];
+
+    const listing = await db.listing.create({
+      data: {
+        title: v.title,
+        city: v.city,
+        price: priceCents,
+        beds: v.beds,
+        baths: v.baths,
+        description: v.description,
+        images, // JSON column (string[])
+        videoUrl: v.videoUrl,
+        status: $Enums.Status.PENDING,
+        landlordId: s.sub, // 👈 from our JWT (user id)
+      },
+      select: { id: true },
+    });
+
+    redirect(`/listing/${listing.id}`);
+  }
+
   return (
     <main className="min-h-screen max-w-2xl mx-auto px-4 py-8">
       <h1 className="text-2xl md:text-3xl font-semibold">Create a new listing</h1>

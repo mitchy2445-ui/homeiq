@@ -59,9 +59,11 @@ export default function Header() {
         {/* Right-side actions */}
         <nav className="ml-auto flex items-center gap-3">
           {/* Create listing (gate server-side later if needed) */}
-          <Link href="/dashboard/new-listing" className="text-sm font-medium hover:underline">
-            Become a Landlord
-          </Link>
+        
+<Link href="/host" className="text-sm font-medium hover:underline">
+  Become a Landlord
+</Link>
+
 
           {/* Admin shortcut (only show if key present and user is ADMIN) */}
           {adminKey && isAdmin && (
