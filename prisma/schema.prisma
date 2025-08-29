@@ -8,6 +8,27 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Status {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum Role {
+  USER
+  LANDLORD
+  ADMIN
+}
+
+/** NEW enums for neighborhood/amenities + ID state */
+enum NeighborhoodVibe { QUIET MODERATE BUSY }
+enum AreaType { URBAN SUBURBAN RURAL }
+enum ParkingType { STREET ON_SITE NONE }
+enum PetPolicy { NONE CATS DOGS CATS_AND_DOGS RESTRICTED }
+enum LaundryType { IN_UNIT SHARED NONE }
+enum IdStatus { UNVERIFIED PENDING VERIFIED REJECTED }
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -20,7 +41,8 @@ model User {
 
   // Relations
   listings           Listing[]
-  verificationTokens VerificationToken[] // <— back relation added
+  verificationTokens VerificationToken[]
+  landlordProfile    LandlordProfile?      // NEW back-relation (optional)
 }
 
 model VerificationToken {
@@ -34,35 +56,82 @@ model VerificationToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+/** NEW: Landlord profile & verification scaffold */
+model LandlordProfile {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fullName         String
+  phone            String
+  phoneVerifiedAt  DateTime?
+  dob              DateTime?
+  addressLine1     String
+  addressLine2     String?
+  city             String
+  region           String?
+  country          String
+  postal           String
+
+  idStatus         IdStatus @default(UNVERIFIED)
+  kycProvider      String?
+  kycRef           String?
+  addressDocUrl    String?
+
+  // Dev-mode OTP (so we can verify flow without Twilio)
+  phoneOtpHash     String?
+  phoneOtpExpires  DateTime?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
 model Listing {
   id          String   @id @default(cuid())
   title       String
   city        String
-  price       Int // monthly price in cents (e.g., 150000 = $1500.00)
+  price       Int      // monthly price in cents (e.g., 150000 = $1500.00)
   beds        Int
   baths       Int
-  status      Status   @default(APPROVED)
+  status      Status   @default(DRAFT)   // CHANGED default to DRAFT to fit the wizard flow
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   landlordId String?
-  landlord   User?   @relation(fields: [landlordId], references: [id])
+  landlord   User?     @relation(fields: [landlordId], references: [id])
 
-  // ✅ Media (SQLite‑compatible)
-  images   Json? // store string[] as JSON (e.g. ["https://...","https://..."])
-  videoUrl String? // optional video URL
-}
+  // ✅ Media (SQLite-compatible)
+  images     Json?     // string[] (e.g. ["https://...","https://..."])
+  videoUrl   String?   // optional video URL
 
-enum Status {
-  DRAFT
-  PENDING
-  APPROVED
-  REJECTED
-}
+  // ✅ NEW: property metadata & neighborhood/amenities
+  propertyType           String?
+  neighborhoodVibe       NeighborhoodVibe?
+  areaType               AreaType?
 
-enum Role {
-  USER
-  LANDLORD
-  ADMIN
+  distanceBusMeters      Int?
+  distanceGroceryMeters  Int?
+  distanceSchoolMeters   Int?
+  distanceParkMeters     Int?
+  distancePharmacyMeters Int?
+  distanceGymMeters      Int?
+
+  parkingType            ParkingType?
+  petPolicy              PetPolicy?
+  accessibility          Json?      // string[]
+  laundry                LaundryType?
+
+  heating                String?
+  cooling                String?
+  furnished              Boolean?
+
+  utilitiesIncluded      Json?      // string[]
+  minLeaseMonths         Int?
+  maxOccupants           Int?
+  smokingAllowed         Boolean?
+  houseRules             String?
+
+  // Optional deposit for policies step
+  depositCents           Int?
 }
