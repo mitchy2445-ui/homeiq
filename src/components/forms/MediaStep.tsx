@@ -10,6 +10,47 @@ type Props = {
   setVideoUrl: (url: string | null) => void;
 };
 
+/* ------------------------- type guards / helpers ------------------------- */
+
+type SignSuccess = {
+  timestamp: number;
+  signature: string;
+  apiKey: string;
+  cloudName: string;
+  folder: string;
+};
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+function getErrorMessage(x: unknown): string {
+  if (typeof x === "string") return x;
+  if (isRecord(x) && typeof x.error === "string") return x.error;
+  if (isRecord(x) && isRecord(x.error) && typeof x.error.message === "string") {
+    return x.error.message;
+  }
+  if (isRecord(x) && typeof x.message === "string") return x.message;
+  return "Upload failed";
+}
+
+function isSignSuccess(x: unknown): x is SignSuccess {
+  return (
+    isRecord(x) &&
+    typeof x.timestamp === "number" &&
+    typeof x.signature === "string" &&
+    typeof x.apiKey === "string" &&
+    typeof x.cloudName === "string" &&
+    typeof x.folder === "string"
+  );
+}
+
+function hasSecureUrl(x: unknown): x is { secure_url: string } {
+  return isRecord(x) && typeof x.secure_url === "string";
+}
+
+/* ----------------------------------------------------------------------- */
+
 export default function MediaStep({ photos, setPhotos, videoUrl, setVideoUrl }: Props) {
   const [uploading, setUploading] = useState(false);
   const [progressText, setProgressText] = useState<string | null>(null);
@@ -17,22 +58,59 @@ export default function MediaStep({ photos, setPhotos, videoUrl, setVideoUrl }: 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
+  async function uploadToCloudinarySigned(
+    file: File,
+    resourceType: "image" | "video"
+  ): Promise<string> {
+    // 1) get signature from our server
+    const signRes = await fetch("/api/cloudinary/sign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folder: "homeiq/uploads" }),
+    });
+
+    const signCT = signRes.headers.get("content-type") || "";
+    const signBody: unknown = signCT.includes("application/json")
+      ? await signRes.json()
+      : await signRes.text();
+
+    if (!signRes.ok || !isSignSuccess(signBody)) {
+      throw new Error(getErrorMessage(signBody));
+    }
+
+    const { cloudName, apiKey, timestamp, signature, folder } = signBody;
+
+    // 2) browser → Cloudinary direct upload
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("api_key", apiKey);
+    fd.append("timestamp", String(timestamp));
+    fd.append("signature", signature);
+    fd.append("folder", folder);
+
+    const endpoint = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`;
+    const upRes = await fetch(endpoint, { method: "POST", body: fd });
+
+    const upCT = upRes.headers.get("content-type") || "";
+    const upBody: unknown = upCT.includes("application/json")
+      ? await upRes.json()
+      : await upRes.text();
+
+    if (!upRes.ok || !hasSecureUrl(upBody)) {
+      throw new Error(getErrorMessage(upBody));
+    }
+    return upBody.secure_url;
+  }
+
   async function uploadFile(file: File, resourceType: "image" | "video") {
     setUploading(true);
     setProgressText(`Uploading ${resourceType}…`);
-
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("resourceType", resourceType);
-
-    const res = await fetch("/api/upload", { method: "POST", body: formData });
-    const data = await res.json();
-
-    setUploading(false);
-    setProgressText(null);
-
-    if (!res.ok) throw new Error(data?.error || "Upload failed");
-    return data.url as string;
+    try {
+      return await uploadToCloudinarySigned(file, resourceType);
+    } finally {
+      setUploading(false);
+      setProgressText(null);
+    }
   }
 
   async function handleAddImages(e: React.ChangeEvent<HTMLInputElement>) {
@@ -114,7 +192,8 @@ export default function MediaStep({ photos, setPhotos, videoUrl, setVideoUrl }: 
             <button
               type="button"
               onClick={() => imageInputRef.current?.click()}
-              className="rounded-xl px-4 py-2 bg-emerald-600 text-white hover:shadow-md"
+              disabled={uploading}
+              className="rounded-xl px-4 py-2 bg-emerald-600 text-white hover:shadow-md disabled:opacity-60"
             >
               + Add
             </button>
@@ -181,31 +260,33 @@ export default function MediaStep({ photos, setPhotos, videoUrl, setVideoUrl }: 
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="font-medium">Video (optional)</h3>
-          <div className="flex items-center gap-2">
-            <input
-              ref={videoInputRef}
-              type="file"
-              accept="video/*"
-              onChange={handleAddVideo}
-              className="hidden"
-            />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept="video/*"
+            onChange={handleAddVideo}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => videoInputRef.current?.click()}
+            disabled={uploading}
+            className="rounded-xl px-4 py-2 bg-emerald-600 text-white hover:shadow-md disabled:opacity-60"
+          >
+            Upload video
+          </button>
+          {videoUrl && (
             <button
               type="button"
-              onClick={() => videoInputRef.current?.click()}
-              className="rounded-xl px-4 py-2 bg-emerald-600 text-white hover:shadow-md"
+              onClick={() => setVideoUrl(null)}
+              className="rounded-xl px-3 py-2 border text-sm"
             >
-              Upload video
+              Remove
             </button>
-            {videoUrl && (
-              <button
-                type="button"
-                onClick={() => setVideoUrl(null)}
-                className="rounded-xl px-3 py-2 border text-sm"
-              >
-                Remove
-              </button>
-            )}
-          </div>
+          )}
         </div>
 
         {videoUrl ? (
@@ -216,9 +297,7 @@ export default function MediaStep({ photos, setPhotos, videoUrl, setVideoUrl }: 
             aria-label="Listing video"
           />
         ) : (
-          <p className="text-sm text-gray-500">
-            MP4 recommended, ~60s. We’ll host it for you.
-          </p>
+          <p className="text-sm text-gray-500">MP4 recommended, ~60s. We’ll host it for you.</p>
         )}
       </section>
     </div>
