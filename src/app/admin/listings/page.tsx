@@ -1,100 +1,131 @@
 // src/app/admin/listings/page.tsx
 import { prisma as db } from "@/lib/db";
-import { revalidatePath } from "next/cache";
+import { getSessionFromCookie } from "@/lib/auth";
 import { $Enums } from "@prisma/client";
-import Image from "next/image";
+import { revalidatePath } from "next/cache";
 
-type PageProps = { searchParams: { key?: string } };
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-async function setStatusAction(id: string, status: $Enums.Status) {
-  "use server";
-  await db.listing.update({ where: { id }, data: { status } });
-
-  // Revalidate key pages that show list data
-  revalidatePath("/");
-  revalidatePath("/search");
-  revalidatePath(`/listing/${id}`);
+// Allow if role === ADMIN or email matches env
+function canAdmin(session: { email?: string; role?: string } | null) {
+  const envEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || "").toLowerCase();
+  return session?.role === "ADMIN" || session?.email?.toLowerCase() === envEmail;
 }
 
-export default async function AdminListingsPage({ searchParams }: PageProps) {
-  const provided = searchParams.key;
-  const required = process.env.ADMIN_KEY;
-  if (!required || provided !== required) {
+export default async function AdminListingsPage() {
+  const session = await getSessionFromCookie();
+
+  if (!canAdmin(session)) {
     return (
-      <main className="max-w-xl mx-auto px-4 py-16">
+      <main className="mx-auto max-w-4xl px-4 py-12">
         <h1 className="text-2xl font-semibold">Unauthorized</h1>
         <p className="text-gray-600 mt-2">
-          Add <code>ADMIN_KEY</code> to <code>.env.local</code> and open this page as{" "}
-          <code>/admin/listings?key=YOUR_KEY</code>.
+          Provide a valid admin email or sign in as an admin.
         </p>
+        <div className="mt-4 text-sm text-gray-500">
+          <div><strong>Logged in as:</strong> {session?.email ?? "guest"}</div>
+          <div><strong>Required email:</strong> {process.env.NEXT_PUBLIC_ADMIN_EMAIL || "(not set)"} </div>
+        </div>
       </main>
     );
   }
 
-  const pending = await db.listing.findMany({
+  const listings = await db.listing.findMany({
     where: { status: $Enums.Status.PENDING },
     orderBy: { createdAt: "desc" },
-    take: 100,
+    select: {
+      id: true,
+      title: true,
+      city: true,
+      price: true,
+      beds: true,
+      baths: true,
+      createdAt: true,
+      landlord: { select: { email: true, name: true } },
+    },
   });
 
+  // --- Server actions ---
+  async function approve(formData: FormData) {
+    "use server";
+    const s = await getSessionFromCookie();
+    if (!canAdmin(s)) throw new Error("Unauthorized");
+    const id = String(formData.get("id") || "");
+    if (!id) return;
+    await db.listing.update({ where: { id }, data: { status: $Enums.Status.APPROVED } });
+    // refresh admin and homepage
+    revalidatePath("/admin/listings");
+    revalidatePath("/");
+  }
+
+  async function reject(formData: FormData) {
+    "use server";
+    const s = await getSessionFromCookie();
+    if (!canAdmin(s)) throw new Error("Unauthorized");
+    const id = String(formData.get("id") || "");
+    if (!id) return;
+    await db.listing.update({ where: { id }, data: { status: $Enums.Status.REJECTED } });
+    revalidatePath("/admin/listings");
+    revalidatePath("/");
+  }
+
   return (
-    <main className="max-w-6xl mx-auto px-4 py-8">
-      <h1 className="text-2xl md:text-3xl font-semibold">Pending listings</h1>
-      <p className="text-gray-600 mt-1">Approve or reject new submissions.</p>
+    <main className="mx-auto max-w-6xl px-4 py-10">
+      <h1 className="text-2xl font-semibold">Pending listings</h1>
+      <p className="text-gray-600 mt-1">
+        {listings.length === 0 ? "No pending items." : "Review and approve or reject each listing."}
+      </p>
 
-      {pending.length === 0 ? (
-        <p className="text-gray-600 mt-6">No pending listings 🎉</p>
-      ) : (
-        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {pending.map((l) => {
-            const preview =
-              Array.isArray(l.images) && l.images.length > 0 && typeof l.images[0] === "string"
-                ? (l.images[0] as string)
-                : "https://picsum.photos/seed/homeiq-admin/800/600";
-
-            async function approve() {
-              "use server";
-              return setStatusAction(l.id, $Enums.Status.APPROVED);
-            }
-            async function reject() {
-              "use server";
-              return setStatusAction(l.id, $Enums.Status.REJECTED);
-            }
-
-            return (
-              <div key={l.id} className="rounded-2xl border overflow-hidden">
-                <div className="relative aspect-[4/3] bg-gray-100">
-                  <Image
-                    src={preview}
-                    alt={l.title}
-                    fill
-                    sizes="(min-width: 1024px) 33vw, 100vw"
-                    className="object-cover"
-                  />
-                </div>
-                <div className="p-4">
-                  <div className="font-semibold line-clamp-1">{l.title}</div>
-                  <div className="text-sm text-gray-600 mt-1">
-                    {l.city} • {l.beds} bd • {l.baths} ba
-                  </div>
-                  <div className="flex gap-2 mt-4">
+      <div className="mt-6 overflow-x-auto rounded-xl border">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50 text-left">
+            <tr>
+              <th className="px-4 py-3">Title</th>
+              <th className="px-4 py-3">City</th>
+              <th className="px-4 py-3">Beds</th>
+              <th className="px-4 py-3">Baths</th>
+              <th className="px-4 py-3">Price (CAD)</th>
+              <th className="px-4 py-3">Owner</th>
+              <th className="px-4 py-3">Created</th>
+              <th className="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {listings.map((l) => (
+              <tr key={l.id} className="border-t">
+                <td className="px-4 py-3">
+                  <a className="underline" href={`/listing/${l.id}`} target="_blank">
+                    {l.title || "(no title)"}
+                  </a>
+                </td>
+                <td className="px-4 py-3">{l.city}</td>
+                <td className="px-4 py-3">{l.beds}</td>
+                <td className="px-4 py-3">{l.baths}</td>
+                <td className="px-4 py-3">${(l.price / 100).toLocaleString()}</td>
+                <td className="px-4 py-3">{l.landlord?.name || l.landlord?.email || "—"}</td>
+                <td className="px-4 py-3">{new Date(l.createdAt).toLocaleDateString()}</td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
                     <form action={approve}>
-                      <button className="rounded-lg border px-3 py-1.5 text-sm bg-green-600 text-white hover:bg-green-700">
+                      <input type="hidden" name="id" value={l.id} />
+                      <button className="rounded-lg bg-green-600 text-white px-3 py-1.5 hover:opacity-90">
                         Approve
                       </button>
                     </form>
                     <form action={reject}>
-                      <button className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50">
+                      <input type="hidden" name="id" value={l.id} />
+                      <button className="rounded-lg border px-3 py-1.5 hover:bg-gray-50">
                         Reject
                       </button>
                     </form>
                   </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

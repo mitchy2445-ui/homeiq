@@ -1,52 +1,82 @@
 // src/components/ListingCard.tsx
+import React from "react";
 import Link from "next/link";
 import Image from "next/image";
 
-type Props = {
-  href?: string;
-  imageSrc?: string;     // NEW: optional image
-  title?: string;        // NEW: optional title for alt/aria
-  price?: string;        // e.g., "$1,450 / mo"
-  meta?: string;         // e.g., "2 bd · 1 ba"
-  location?: string;     // e.g., "Downtown"
+export type ListingCardProps = {
+  id: string | number;
+  title: string;
+  city?: string | null;
+  priceCents: number; // price per month in cents
+  beds?: number | null;
+  baths?: number | null;
+  images?: string[] | null; // array of image URLs
 };
 
+function formatCurrencyFromCents(cents: number) {
+  return (cents / 100).toLocaleString("en-CA", {
+    style: "currency",
+    currency: "CAD",
+    maximumFractionDigits: 0,
+  });
+}
+
 export default function ListingCard({
-  href = "#",
-  imageSrc,
-  title = "Listing",
-  price = "$X,XXX / mo",
-  meta = "2 bd · 1 ba",
-  location = "Downtown",
-}: Props) {
+  id,
+  title,
+  city,
+  priceCents,
+  beds,
+  baths,
+  images,
+}: ListingCardProps) {
+  const img = images && images.length > 0 ? images[0] : "/placeholder.jpg"; // ensure you have public/placeholder.jpg
+
   return (
     <Link
-      href={href}
-      className="group block overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5 transition-transform duration-200 hover:scale-[1.015] hover:shadow-md focus:outline-none focus:ring-2 focus:ring-black/10 min-w-[280px] max-w-[300px] flex-shrink-0"
-      aria-label={`View listing: ${title} in ${location}`}
+      href={`/listing/${id}`}
+      className="group block w-[76vw] sm:w-[52vw] md:w-[36vw] lg:w-[28vw] xl:w-[22vw] shrink-0 snap-start"
+      prefetch
     >
-      <div className="relative aspect-[4/3] bg-gray-100">
-        {imageSrc ? (
+      <div className="overflow-hidden rounded-2xl shadow-sm transition-all duration-200 hover:shadow-xl">
+        <div className="relative aspect-[4/3] w-full overflow-hidden bg-gray-100">
           <Image
-            src={imageSrc}
-            alt={`${title} in ${location}`}
+            src={img}
+            alt={title}
             fill
-            className="object-cover"
-            sizes="(max-width: 768px) 80vw, 300px"
+            sizes="(max-width: 640px) 76vw, (max-width: 768px) 52vw, (max-width: 1024px) 36vw, (max-width: 1280px) 28vw, 22vw"
+            className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
             priority={false}
           />
-        ) : (
-          // graceful fallback if no image yet
-          <div className="absolute inset-0 grid place-items-center text-xs text-gray-400">
-            No photo
+        </div>
+        <div className="flex items-start justify-between gap-3 p-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold text-gray-900">
+              {title}
+            </h3>
+            {city ? (
+              <p className="truncate text-xs text-gray-500">{city}</p>
+            ) : null}
+            <p className="mt-1 text-sm text-gray-800">
+              <span className="font-semibold">
+                {formatCurrencyFromCents(priceCents)}
+              </span>
+              <span className="text-gray-500"> / month</span>
+            </p>
           </div>
-        )}
-      </div>
-
-      <div className="p-3">
-        <div className="font-semibold leading-tight truncate">{price}</div>
-        <div className="text-sm text-gray-600 truncate">{meta}</div>
-        <div className="text-sm text-gray-500 truncate">{location}</div>
+          <div className="shrink-0 text-right text-xs text-gray-600">
+            {typeof beds === "number" && beds > 0 ? (
+              <p>
+                {beds} bed{beds > 1 ? "s" : ""}
+              </p>
+            ) : null}
+            {typeof baths === "number" && baths > 0 ? (
+              <p>
+                {baths} bath{baths > 1 ? "s" : ""}
+              </p>
+            ) : null}
+          </div>
+        </div>
       </div>
     </Link>
   );

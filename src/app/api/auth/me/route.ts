@@ -1,10 +1,12 @@
-import { cookies } from "next/headers";
+// src/app/api/auth/me/route.ts
 import { NextResponse } from "next/server";
-import { verifySession } from "@/lib/auth";
+import { getSessionFromCookie } from "@/lib/auth";
+
+export const runtime = "nodejs";
 
 export async function GET() {
-  const token = (await cookies()).get("homeiq_session")?.value;
-  if (!token) return NextResponse.json({ user: null }, { status: 200 });
-  const payload = await verifySession(token);
-  return NextResponse.json({ user: payload ?? null }, { status: 200 });
+  const s = await getSessionFromCookie();
+  return NextResponse.json({
+    user: s ? { email: s.email, role: s.role } : null,
+  });
 }

@@ -1,19 +1,25 @@
 // src/lib/auth.ts
-import "server-only";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-const secret = process.env.AUTH_SECRET || "dev-secret-change-me";
-const key = new TextEncoder().encode(secret);
+export const AUTH_COOKIE = "homeiq_session"; // <- single source of truth
+
+const key = new TextEncoder().encode(
+  process.env.AUTH_SECRET || "dev-secret-change-me"
+);
 
 export type SessionPayload = {
-  sub: string;     // user id
+  sub: string;  // user id
   email: string;
-  role?: string;   // e.g. "USER" | "LANDLORD" | "ADMIN"
+  role?: string;
+  iat?: number;
+  exp?: number;
 };
 
-export async function signSession(payload: SessionPayload) {
+export async function signSession(
+  payload: Omit<SessionPayload, "iat" | "exp">
+) {
   return await new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setIssuedAt()
@@ -30,27 +36,14 @@ export async function verifySession(token: string) {
   }
 }
 
-/** Read and verify the JWT from the HttpOnly cookie on the server. */
 export async function getSessionFromCookie() {
-  const store = await cookies(); // Next 14: async
-  const token = store.get("homeiq_session")?.value;
-  if (!token) return null;
-  return await verifySession(token);
+  const jar = await cookies();
+  const token = jar.get(AUTH_COOKIE)?.value;
+  return token ? await verifySession(token) : null;
 }
 
-/** Redirect to /auth/login if no session. Use in Server Components / Route Handlers. */
-export async function requireSession(nextPath?: string) {
+export async function requireSession(redirectTo = "/auth/login") {
   const s = await getSessionFromCookie();
-  if (!s) {
-    const to = "/auth/login" + (nextPath ? `?next=${encodeURIComponent(nextPath)}` : "");
-    redirect(to);
-  }
-  return s;
-}
-
-/** Optional: gate by role(s). Redirects home if role missing. */
-export async function requireRole(roles: string[], nextPath?: string) {
-  const s = await requireSession(nextPath);
-  if (!s.role || !roles.includes(String(s.role))) redirect("/");
-  return s;
+  if (!s) redirect(redirectTo);
+  return s!;
 }

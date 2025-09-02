@@ -138,6 +138,7 @@ model Listing {
 
   // Media
   images   Json? // string[]
+  videos    Json? 
   videoUrl String?
 
   // Property metadata & neighborhood/amenities

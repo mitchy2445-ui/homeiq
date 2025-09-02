@@ -63,18 +63,19 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    const data = {
+   const data = {
       title: String(body.title ?? "Untitled").slice(0, 140),
       city: String(body.city ?? "").slice(0, 80),
-      price: toInt(body.price) ?? 0, // cents
+      price: toInt(body.price) ?? 0,
       beds: toInt(body.beds) ?? 0,
       baths: toInt(body.baths) ?? 0,
       description: String(body.description ?? ""),
-      images: asStringArray(body.images),
-      amenities: asStringArray(body.amenities),               // Json? in Prisma
-      videoUrl: body.videoUrl ? String(body.videoUrl) : null, // String?
-      status: "APPROVED" as const,                            // flip to "PENDING" for review
-      landlordId,                                             // from session
+      images: asStringArray(body.images),     // array of relative paths like /uploads/xxx.jpg
+      videos: asStringArray(body.videos),     // NEW: array of /uploads/xxx.mp4
+      amenities: asStringArray(body.amenities),
+      videoUrl: null,                         // optional legacy field not used now
+      status: "APPROVED" as const,
+      landlordId,
     };
 
     const created = await prisma.listing.create({ data });

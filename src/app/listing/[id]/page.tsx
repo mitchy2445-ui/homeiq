@@ -1,263 +1,316 @@
 // src/app/listing/[id]/page.tsx
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import Image from "next/image";
+import Link from "next/link";
 import { prisma as db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
+import Button from "@/components/ui/Button";
+import SimilarListings from "./SimilarListings";
 
-// ---- helpers ----
-function formatCurrencyFromCents(cents: number) {
-  return (cents / 100).toLocaleString("en-CA", {
+// Icons
+import {
+  BedDouble,
+  Bath,
+  Ruler,
+  MapPin,
+  Wifi,
+  Car,
+  Snowflake,
+  Tv,
+  Waves,
+  WashingMachine,
+  Utensils,
+  Dumbbell,
+  PawPrint,
+  Flame,
+  Leaf,
+  Building, // use instead of Elevator
+} from "lucide-react";
+
+/* ----------------------------- helpers ---------------------------------- */
+
+function formatCurrency(n: number) {
+  return n.toLocaleString("en-CA", {
     style: "currency",
     currency: "CAD",
     maximumFractionDigits: 0,
   });
 }
 
-// Safely coerce Prisma Json -> string[]
 function jsonToStringArray(v: Prisma.JsonValue | null | undefined): string[] {
-  return Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]) : [];
+  if (!v) return [];
+  if (Array.isArray(v) && v.every((x) => typeof x === "string")) return v as string[];
+  return [];
 }
 
-type PageProps = { params: { id: string } };
+// normalize amenity strings for icon lookup
+function normalizeAmenity(s: string) {
+  return s.trim().toLowerCase();
+}
 
-// Strong types for our queries (media fields OPTIONAL to satisfy older client types)
-type ListingWithLandlordAndMaybeMedia =
-  Prisma.ListingGetPayload<{ include: { landlord: true } }> & {
-    images?: Prisma.JsonValue | null;
-    videoUrl?: string | null;
-  };
-
-type RelatedLite = {
-  id: string;
-  title: string;
-  city: string;
-  price: number;
-  beds: number;
-  baths: number;
+// Map common amenity names to icons (expand anytime)
+type IconCmp = React.ComponentType<{ className?: string }>;
+const AMENITY_ICON_MAP: Record<string, IconCmp> = {
+  wifi: Wifi,
+  parking: Car,
+  "free parking": Car,
+  "air conditioning": Snowflake,
+  ac: Snowflake,
+  pool: Waves,
+  tv: Tv,
+  washer: WashingMachine,
+  dryer: WashingMachine,
+  kitchen: Utensils,
+  gym: Dumbbell,
+  "pets allowed": PawPrint,
+  elevator: Building, // fallback icon
+  fireplace: Flame,
+  balcony: Leaf,
+  patio: Leaf,
 };
 
-export default async function ListingPage({ params }: PageProps) {
-  const id = params.id;
+/* ------------------------------- types ---------------------------------- */
 
-  // Fetch the listing + landlord (typed)
-  const listing: ListingWithLandlordAndMaybeMedia | null = await db.listing.findUnique({
+type PageParams = { id: string };
+type PageProps = { params: Promise<PageParams> };
+
+type ListingWithLandlordLite = Prisma.ListingGetPayload<{
+  include: {
+    landlord: {
+      select: {
+        id: true;
+        name: true;
+        email: true;
+      };
+    };
+  };
+}>;
+
+/* ------------------------------- SEO ---------------------------------- */
+
+// Optional SEO for each listing page
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const listing = await db.listing.findUnique({
     where: { id },
-    include: { landlord: true },
+    select: { title: true, city: true, description: true },
+  });
+
+  if (!listing) {
+    return { title: "Listing not found — HOMEIQ" };
+  }
+
+  const title = `${listing.title ?? "Listing"} — ${listing.city ?? "Canada"} | HOMEIQ`;
+  const description = listing.description?.slice(0, 150) ?? "Find your next home on HOMEIQ.";
+
+  return { title, description };
+}
+
+/* -------------------------------- page ---------------------------------- */
+
+export default async function ListingPage({ params }: PageProps) {
+  // Next.js 15: params is a Promise
+  const { id } = await params;
+
+  const listing: ListingWithLandlordLite | null = await db.listing.findUnique({
+    where: { id }, // string id
+    include: {
+      landlord: { select: { id: true, name: true, email: true } }, // avoid passwordHash
+    },
   });
 
   if (!listing) notFound();
 
-  // Related listings from same city
-  const related: RelatedLite[] = await db.listing.findMany({
-    where: { city: listing.city, NOT: { id: listing.id } },
-    select: { id: true, title: true, city: true, price: true, beds: true, baths: true },
-    take: 6,
-    orderBy: { price: "asc" },
-  });
-
-  // Prefer DB media; fallback to placeholders if empty
-  const placeholderImages: string[] = [
-    "https://picsum.photos/seed/homeiq1/1200/800",
-    "https://picsum.photos/seed/homeiq2/800/600",
-    "https://picsum.photos/seed/homeiq3/800/600",
-    "https://picsum.photos/seed/homeiq4/800/600",
-    "https://picsum.photos/seed/homeiq5/800/600",
-  ];
-
-  const dbImages = jsonToStringArray(listing.images ?? null);
-  const images = dbImages.length > 0 ? dbImages.slice(0, 5) : placeholderImages;
-
-  const videoUrl = listing.videoUrl ?? undefined;
+  const images = jsonToStringArray(listing.images);
+  const amenities = jsonToStringArray(
+    (listing as unknown as { amenities?: Prisma.JsonValue }).amenities,
+  );
+  const videos = jsonToStringArray(
+    (listing as unknown as { videos?: Prisma.JsonValue }).videos,
+  );
 
   return (
-    <main className="min-h-screen">
-      <div className="h-2" />
+    <main className="mx-auto max-w-6xl px-4 py-8">
+      {/* Back link */}
+      <div className="mb-6">
+        <Link href="/" className="text-sm underline hover:opacity-80">
+          ← Back to Home
+        </Link>
+      </div>
 
-      <section className="max-w-6xl mx-auto px-4 py-6 md:py-10">
-        {/* Title row */}
-        <div className="flex items-start justify-between gap-4">
+      {/* Title + location */}
+      <header className="mb-3">
+        <h1 className="text-3xl font-semibold tracking-tight">{listing.title}</h1>
+        <p className="flex items-center gap-2 text-muted-foreground">
+          <MapPin className="h-4 w-4" />
+          <span>{listing.city}</span>
+        </p>
+      </header>
+
+      {/* --- Gallery (1 big + 4 small) --- */}
+      {images.length > 0 ? (
+        <section className="mb-8 grid grid-cols-1 gap-2 md:grid-cols-4">
+          {/* Large hero */}
+          <div className="relative overflow-hidden rounded-2xl md:col-span-2 md:row-span-2 aspect-[16/11] md:aspect-[4/3]">
+            <Image
+              src={images[0]}
+              alt={listing.title}
+              fill
+              priority
+              className="object-cover"
+            />
+          </div>
+          {/* Up to 4 supporting images */}
+          {[images[1], images[2], images[3], images[4]]
+            .filter(Boolean)
+            .map((src, i) => (
+              <div
+                key={i}
+                className="relative hidden overflow-hidden rounded-2xl md:block aspect-[4/3]"
+              >
+                <Image src={src as string} alt={`photo ${i + 2}`} fill className="object-cover" />
+              </div>
+            ))}
+        </section>
+      ) : (
+        <div className="mb-8 h-64 rounded-2xl bg-gray-200" />
+      )}
+
+      {/* Videos (uploaded from device) */}
+      {videos.length > 0 && (
+        <section className="mb-8">
+          <h3 className="mb-3 text-lg font-semibold">Videos</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {videos.map((src, i) => (
+              <video key={i} src={src} className="w-full rounded-2xl border" controls />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Main two-column layout */}
+      <div className="grid grid-cols-1 gap-10 md:grid-cols-[1.1fr_0.9fr]">
+        {/* LEFT: details */}
+        <section className="space-y-8">
+          {/* Quick facts with icons */}
+          <div className="flex flex-wrap items-center gap-6 text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <BedDouble className="h-5 w-5" />
+              <span className="text-sm">
+                {listing.beds} {listing.beds === 1 ? "bedroom" : "bedrooms"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Bath className="h-5 w-5" />
+              <span className="text-sm">
+                {listing.baths} {listing.baths === 1 ? "bathroom" : "bathrooms"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Ruler className="h-5 w-5" />
+              <span className="text-sm">Spacious layout</span>
+            </div>
+          </div>
+
+          {/* About */}
           <div>
-            <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
-              {listing.title}
-            </h1>
-            <p className="text-gray-600 mt-1">
-              {listing.city} • {listing.beds} bd • {listing.baths} ba
+            <h2 className="mb-3 text-xl font-semibold">About this place</h2>
+            <p className="leading-relaxed">
+              {listing.description ?? "No description provided."}
             </p>
           </div>
 
-          <div className="hidden md:flex items-center gap-3">
-            <button
-              className="rounded-full border px-4 py-2 text-sm hover:bg-gray-50"
-              aria-label="Share listing"
-            >
-              Share
-            </button>
-            <button
-              className="rounded-full border px-4 py-2 text-sm hover:bg-gray-50"
-              aria-label="Save listing"
-            >
-              ♥ Save
-            </button>
-          </div>
-        </div>
-
-        {/* Media gallery */}
-        <div className="mt-5 grid grid-cols-1 md:grid-cols-4 md:grid-rows-2 gap-3">
-          {/* Big tile */}
-          <div className="md:col-span-2 md:row-span-2 overflow-hidden rounded-2xl relative h-72 md:h-[28rem]">
-            <Image
-              src={images[0]}
-              alt="Primary photo"
-              fill
-              sizes="(min-width: 768px) 50vw, 100vw"
-              className="object-cover"
-              priority
-            />
-          </div>
-
-          {/* Four small tiles */}
-          {images.slice(1, 5).map((src, i) => (
-            <div key={i} className="overflow-hidden rounded-2xl relative h-44 md:h-auto md:min-h-40">
-              <Image
-                src={src}
-                alt={`Photo ${i + 2}`}
-                fill
-                sizes="(min-width: 768px) 25vw, 100vw"
-                className="object-cover"
-              />
+          {/* Amenities */}
+          {amenities.length > 0 && (
+            <div>
+              <h3 className="mb-3 text-lg font-semibold">Amenities</h3>
+              <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {amenities.map((raw) => {
+                  const key = normalizeAmenity(raw);
+                  const Icon = AMENITY_ICON_MAP[key];
+                  return (
+                    <li
+                      key={raw}
+                      className="flex items-center gap-2 text-sm text-muted-foreground"
+                    >
+                      {Icon ? (
+                        <Icon className="h-4 w-4" />
+                      ) : (
+                        <Leaf className="h-4 w-4 opacity-50" />
+                      )}
+                      <span className="capitalize">{raw}</span>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
-          ))}
-        </div>
+          )}
 
-        {/* Main two-column layout */}
-        <div className="mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left column */}
-          <div className="lg:col-span-8">
-            {/* Virtual Viewing */}
-            {videoUrl && (
-              <div className="mb-8">
-                <h2 className="text-xl font-semibold mb-3">Virtual viewing</h2>
-                <div className="rounded-2xl overflow-hidden bg-black">
-                  <video src={videoUrl} controls className="w-full h-[360px] md:h-[440px]" />
-                </div>
-              </div>
-            )}
+          {/* Location placeholder */}
+          <div>
+            <h3 className="mb-3 text-lg font-semibold">Location</h3>
+            <div className="h-64 w-full rounded-2xl border bg-gray-50" />
+          </div>
 
-            {/* About */}
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold mb-2">About this home</h2>
-              <p className="text-gray-700 leading-7">
-                A bright, comfortable place in {listing.city}. For now, beds/baths and price are from your database.
-                Add a richer description and amenities as your schema grows.
-              </p>
-            </div>
-
-            {/* Essentials */}
-            <div className="mb-8">
-              <h3 className="text-lg font-semibold mb-3">Essentials</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-gray-700">
-                <div className="rounded-xl border p-3">🛏 {listing.beds} Bedrooms</div>
-                <div className="rounded-xl border p-3">🚿 {listing.baths} Bathrooms</div>
-                <div className="rounded-xl border p-3">🏷 Status: {listing.status}</div>
+          {/* Legacy embedded video URL (only if present) */}
+          {listing.videoUrl ? (
+            <div>
+              <h3 className="mb-3 text-lg font-semibold">Virtual viewing</h3>
+              <div className="aspect-video overflow-hidden rounded-2xl">
+                <iframe
+                  src={listing.videoUrl}
+                  className="h-full w-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  title="Virtual viewing"
+                />
               </div>
             </div>
+          ) : null}
+        </section>
 
-            {/* Amenities (stub list for now) */}
-            <div className="mb-8">
-              <h3 className="text-lg font-semibold mb-3">Amenities</h3>
-              <div className="flex flex-wrap gap-2">
-                {["Wi-Fi", "Heating", "In-unit laundry", "Parking"].map((a) => (
-                  <span
-                    key={a}
-                    className="text-sm rounded-full border px-3 py-1.5 bg-white"
-                  >
-                    {a}
+        {/* RIGHT: sticky booking/contact card */}
+        <aside className="md:sticky md:top-24">
+          <div className="rounded-3xl border p-6 shadow-sm">
+            <div className="mb-5 flex items-start justify-between">
+              <div>
+                <div className="text-3xl font-semibold leading-tight">
+                  {formatCurrency(listing.price)}
+                  <span className="ml-2 text-base font-normal text-muted-foreground">
+                    / month
                   </span>
-                ))}
-              </div>
-            </div>
-
-            {/* Landlord card */}
-            <div className="mb-10">
-              <h3 className="text-lg font-semibold mb-3">Listed by</h3>
-              <div className="rounded-2xl border p-4 flex items-center justify-between">
-                <div>
-                  <p className="font-medium">
-                    {listing.landlord?.name ?? "Landlord"}
-                  </p>
-                  <p className="text-sm text-gray-600">Usually responds within a day</p>
                 </div>
-                <button
-                  className="rounded-full border px-4 py-2 text-sm hover:bg-gray-50"
-                  disabled
-                  title="Messaging will be enabled after we add auth"
-                >
-                  Message landlord
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Right column (sticky action card) */}
-          <aside className="lg:col-span-4">
-            <div className="lg:sticky lg:top-24 rounded-2xl shadow-card border p-5">
-              <div className="flex items-end justify-between">
-                <div>
-                  <div className="text-2xl font-semibold">
-                    {formatCurrencyFromCents(listing.price)}{" "}
-                    <span className="text-base font-normal text-gray-600">/ mo</span>
-                  </div>
-                  <div className="text-gray-600 text-sm mt-1">
-                    {listing.beds} bd • {listing.baths} ba • {listing.city}
-                  </div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  {listing.beds} bed · {listing.baths} bath
                 </div>
               </div>
-
-              <button
-                className="mt-4 w-full rounded-xl bg-brand-600 text-white py-3 font-medium hover:bg-brand-700 transition"
-                disabled
-                title="Auth & messaging coming next"
-              >
-                Message landlord
-              </button>
-
-              <p className="text-xs text-gray-500 mt-3">
-                Instant messaging unlocks after we add authentication. You’ll also see virtual
-                viewing if the landlord uploads a tour.
-              </p>
+              <div className="text-right">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Landlord
+                </div>
+                <div className="font-medium">
+                  {listing.landlord?.name ?? "HOMEIQ Landlord"}
+                </div>
+              </div>
             </div>
-          </aside>
-        </div>
 
-        {/* Related listings */}
-        {related.length > 0 && (
-          <div className="mt-12">
-            <h2 className="text-xl font-semibold mb-4">More in {listing.city}</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
-              {related.map((r) => (
-                <Link
-                  key={r.id}
-                  href={`/listing/${r.id}`}
-                  className="group rounded-2xl border overflow-hidden hover:shadow-hover transition"
-                >
-                  <div className="aspect-[4/3] bg-gray-100" />
-                  <div className="p-4">
-                    <div className="font-semibold">
-                      {formatCurrencyFromCents(r.price)}{" "}
-                      <span className="text-gray-600 font-normal">/ mo</span>
-                    </div>
-                    <div className="text-sm text-gray-600 mt-1">
-                      {r.beds} bd • {r.baths} ba • {r.city}
-                    </div>
-                    <div className="text-sm mt-1 line-clamp-1">{r.title}</div>
-                  </div>
-                </Link>
-              ))}
+            <div className="space-y-3">
+              <Button type="button">Contact landlord</Button>
+              <Button type="button" variant="outline">
+                Save to favorites
+              </Button>
+            </div>
+
+            <div className="mt-5 rounded-xl bg-gray-50 p-4 text-sm text-muted-foreground">
+              You won’t be charged yet. First month + service fee is paid through
+              HOMEIQ; subsequent rent is paid directly to the landlord.
             </div>
           </div>
-        )}
-      </section>
+        </aside>
+      </div>
+
+      {/* Similar listings */}
+      <SimilarListings city={listing.city} excludeId={listing.id} />
     </main>
   );
 }

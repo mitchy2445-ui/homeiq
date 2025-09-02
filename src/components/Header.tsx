@@ -1,11 +1,21 @@
-// src/components/Header.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import SearchBar from "@/components/SearchBar";
 import { usePathname } from "next/navigation";
-import { FiHeart, FiMessageCircle, FiBell, FiUser } from "react-icons/fi";
+import {
+  FiHeart,
+  FiMessageCircle,
+  FiBell,
+  FiUser,
+  FiMenu,
+  FiX,
+  FiLogOut,
+  FiLogIn,
+  FiUserPlus,
+  FiHome,
+} from "react-icons/fi";
 import type { $Enums } from "@prisma/client";
 
 type Me = { email: string; role?: $Enums.Role };
@@ -16,6 +26,7 @@ export default function Header() {
 
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -29,11 +40,14 @@ export default function Header() {
     };
   }, []);
 
-  const isLoggedIn = !!me;
-  const isAdmin = me?.role === "ADMIN";
-  const isLandlord = isAdmin || me?.role === "LANDLORD";
+  // Close the hamburger when navigating
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
 
-  const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY ?? "";
+  const isLoggedIn = !!me;
+  const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL?.toLowerCase() ?? "";
+  const showAdmin = me?.role === "ADMIN" || me?.email?.toLowerCase() === adminEmail;
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -56,24 +70,13 @@ export default function Header() {
           {showCenteredSearch && <SearchBar />}
         </div>
 
-        {/* Right-side actions */}
+        {/* Right-side quick actions */}
         <nav className="ml-auto flex items-center gap-3">
-          {/* Create listing (gate server-side later if needed) */}
-        
-<Link href="/host" className="text-sm font-medium hover:underline">
-  Become a Landlord
-</Link>
-
-
-          {/* Admin shortcut (only show if key present and user is ADMIN) */}
-          {adminKey && isAdmin && (
-            <a
-              href={`/admin/listings?key=${adminKey}`}
-              className="text-sm text-gray-600 hover:underline"
-            >
-              Admin
-            </a>
-          )}
+          {/* Become a Landlord (visible always; gated server-side later) */}
+          <Link href="/host" className="hidden sm:inline-flex items-center gap-2 text-sm font-medium hover:underline">
+            <FiHome className="h-4 w-4" />
+            Become a Landlord
+          </Link>
 
           <Link
             aria-label="Favorites"
@@ -91,41 +94,128 @@ export default function Header() {
             <FiMessageCircle className="h-5 w-5" />
           </Link>
 
-          <button aria-label="Notifications" className="p-2 rounded-full hover:bg-gray-50">
+          <button
+            aria-label="Notifications"
+            className="p-2 rounded-full hover:bg-gray-50"
+            type="button"
+          >
             <FiBell className="h-5 w-5" />
           </button>
 
-          {/* Auth controls */}
+          {/* Auth quick actions (desktop) */}
           {isLoggedIn ? (
-            <>
-              <button
-                onClick={handleLogout}
-                className="text-sm rounded-full border px-3 py-1.5 hover:bg-gray-50"
-                disabled={loading}
-              >
-                Logout
-              </button>
-              <Link aria-label="Profile" href="/account" className="p-2 rounded-full hover:bg-gray-50">
-                <FiUser className="h-5 w-5" />
-              </Link>
-            </>
+            <Link
+              aria-label="Profile"
+              href="/account"
+              className="hidden md:inline-flex p-2 rounded-full hover:bg-gray-50"
+              title="Account"
+            >
+              <FiUser className="h-5 w-5" />
+            </Link>
           ) : (
-            <>
+            <div className="hidden md:flex items-center gap-2">
               <Link
                 href="/auth/login"
                 className="text-sm rounded-full border px-3 py-1.5 hover:bg-gray-50"
               >
                 Log in
               </Link>
-
               <Link
                 href="/auth/register"
                 className="text-sm rounded-full border px-3 py-1.5 hover:bg-gray-50"
               >
                 Register
               </Link>
-            </>
+            </div>
           )}
+
+          {/* Hamburger menu (Admin Center lives here) */}
+          <div className="relative">
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-controls="global-menu"
+              onClick={() => setMenuOpen((v) => !v)}
+              className="p-2 rounded-full border hover:bg-gray-50"
+            >
+              {menuOpen ? <FiX className="h-5 w-5" /> : <FiMenu className="h-5 w-5" />}
+            </button>
+
+            {menuOpen && (
+              <div
+                id="global-menu"
+                role="menu"
+                className="absolute right-0 mt-2 w-64 rounded-xl border bg-white shadow-lg ring-1 ring-black/5 p-2"
+              >
+                {/* Signed-in section */}
+                {isLoggedIn ? (
+                  <>
+                    <div className="px-3 py-2 text-xs text-gray-500">
+                      Signed in as <span className="font-medium">{me?.email}</span>
+                    </div>
+
+                    {/* Admin Center (only if allowed) */}
+                    {showAdmin && (
+                      <Link
+                        href="/admin"
+                        role="menuitem"
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50"
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        {/* simple shield emoji or keep clean text; could also use a lucide icon if you prefer */}
+                        <span className="inline-block h-4 w-4 rounded-full bg-gray-900" />
+                        <span>Admin Center</span>
+                      </Link>
+                    )}
+
+                    <Link
+                      href="/account"
+                      role="menuitem"
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50"
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <FiUser className="h-4 w-4" />
+                      <span>Account</span>
+                    </Link>
+
+                    <div className="my-2 h-px bg-gray-100" />
+
+                    <button
+                      role="menuitem"
+                      onClick={handleLogout}
+                      className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50"
+                    >
+                      <FiLogOut className="h-4 w-4" />
+                      <span>Logout</span>
+                    </button>
+                  </>
+                ) : (
+                  // Signed-out section
+                  <>
+                    <Link
+                      href="/auth/login"
+                      role="menuitem"
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50"
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <FiLogIn className="h-4 w-4" />
+                      <span>Log in</span>
+                    </Link>
+                    <Link
+                      href="/auth/register"
+                      role="menuitem"
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50"
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <FiUserPlus className="h-4 w-4" />
+                      <span>Register</span>
+                    </Link>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </nav>
       </div>
 

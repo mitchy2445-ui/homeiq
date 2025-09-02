@@ -1,35 +1,40 @@
-import { NextResponse } from "next/server";
-import { promises as fs } from "fs";
-import path from "path";
-import crypto from "crypto";
-import { requireSession } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { cloudinary } from "@/lib/cloudinary";
 
-export const runtime = "nodejs";
+export const runtime = "nodejs"; // required for Buffer & upload_stream
 
-export async function POST(req: Request) {
-  await requireSession(); // logged-in only
-  const form = await req.formData();
-  const files = form.getAll("files") as File[];
+export async function POST(req: NextRequest) {
+  try {
+    const form = await req.formData();
+    const file = form.get("file") as File | null;
+    if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
 
-  if (!files?.length) {
-    return NextResponse.json({ error: "No files" }, { status: 400 });
+    // resource_type: "image" | "video" (client sends it)
+    const resourceType = (form.get("resourceType") as string) || "image";
+    const folder = process.env.CLOUDINARY_FOLDER || "homeiq/uploads";
+
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const url: string = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder,
+          resource_type: resourceType as "image" | "video",
+          // images: keep original, video: mp4 recommended
+          format: resourceType === "video" ? "mp4" : undefined,
+        },
+        (err, result) => {
+          if (err || !result?.secure_url) return reject(err || new Error("Upload failed"));
+          resolve(result.secure_url);
+        }
+      );
+      stream.end(buffer);
+    });
+
+    return NextResponse.json({ url });
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
   }
-
-  const uploadDir = path.join(process.cwd(), "public", "uploads");
-  await fs.mkdir(uploadDir, { recursive: true });
-
-  const urls: string[] = [];
-  for (const f of files) {
-    const buf = Buffer.from(await f.arrayBuffer());
-    const ext = f.type === "image/jpeg" ? ".jpg"
-      : f.type === "image/png" ? ".png"
-      : f.type === "image/webp" ? ".webp"
-      : f.type === "video/mp4" ? ".mp4"
-      : path.extname(f.name) || "";
-    const name = `${Date.now()}_${crypto.randomBytes(5).toString("hex")}${ext}`;
-    await fs.writeFile(path.join(uploadDir, name), buf);
-    urls.push(`/uploads/${name}`);
-  }
-
-  return NextResponse.json({ urls });
 }
