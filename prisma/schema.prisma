@@ -78,9 +78,12 @@ model User {
   verificationTokens VerificationToken[]
   landlordProfile    LandlordProfile?
 
-  // NEW back-relations for messaging
+  // Messaging back-relations
   conversationMemberships ConversationParticipant[] @relation("ConversationMembers")
   sentMessages            Message[]                 @relation("UserMessages")
+
+  // Favorites back-relation
+  favorites Favorite[]
 }
 
 model VerificationToken {
@@ -175,8 +178,11 @@ model Listing {
   // optional deposit used by pricing step
   depositCents Int?
 
-  // NEW back-relation to conversations
+  // Messaging back-relation
   conversations Conversation[] @relation("ListingConversations")
+
+  // Favorites back-relation
+  favoritedBy Favorite[]
 }
 
 model Conversation {
@@ -217,4 +223,15 @@ model Message {
   sender       User         @relation("UserMessages", fields: [senderId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, createdAt])
+}
+
+model Favorite {
+  userId    String
+  listingId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@id([userId, listingId])
 }
