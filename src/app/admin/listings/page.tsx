@@ -1,131 +1,169 @@
 // src/app/admin/listings/page.tsx
 import { prisma as db } from "@/lib/db";
-import { getSessionFromCookie } from "@/lib/auth";
-import { $Enums } from "@prisma/client";
-import { revalidatePath } from "next/cache";
+import { requireSession } from "@/lib/auth";
+import { redirect } from "next/navigation";
+import { approveListing, rejectListing } from "@/app/actions/listings";
 
-export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Allow if role === ADMIN or email matches env
-function canAdmin(session: { email?: string; role?: string } | null) {
-  const envEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || "").toLowerCase();
-  return session?.role === "ADMIN" || session?.email?.toLowerCase() === envEmail;
-}
+export default async function AdminListingsPage({
+  searchParams,
+}: {
+  searchParams?: { status?: string; page?: string };
+}) {
+  const s = await requireSession("/admin/listings");
+  if (s.role !== "ADMIN") redirect("/");
 
-export default async function AdminListingsPage() {
-  const session = await getSessionFromCookie();
+  const statusParam = (searchParams?.status ?? "PENDING").toUpperCase();
+  const allowed = new Set(["PENDING", "APPROVED", "REJECTED", "DRAFT"]);
+  const filterStatus = allowed.has(statusParam) ? (statusParam as any) : "PENDING";
 
-  if (!canAdmin(session)) {
-    return (
-      <main className="mx-auto max-w-4xl px-4 py-12">
-        <h1 className="text-2xl font-semibold">Unauthorized</h1>
-        <p className="text-gray-600 mt-2">
-          Provide a valid admin email or sign in as an admin.
-        </p>
-        <div className="mt-4 text-sm text-gray-500">
-          <div><strong>Logged in as:</strong> {session?.email ?? "guest"}</div>
-          <div><strong>Required email:</strong> {process.env.NEXT_PUBLIC_ADMIN_EMAIL || "(not set)"} </div>
-        </div>
-      </main>
-    );
-  }
+  const page = Math.max(parseInt(searchParams?.page ?? "1", 10) || 1, 1);
+  const pageSize = 15;
 
-  const listings = await db.listing.findMany({
-    where: { status: $Enums.Status.PENDING },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      title: true,
-      city: true,
-      price: true,
-      beds: true,
-      baths: true,
-      createdAt: true,
-      landlord: { select: { email: true, name: true } },
-    },
-  });
+  const where = { status: filterStatus as any };
 
-  // --- Server actions ---
-  async function approve(formData: FormData) {
-    "use server";
-    const s = await getSessionFromCookie();
-    if (!canAdmin(s)) throw new Error("Unauthorized");
-    const id = String(formData.get("id") || "");
-    if (!id) return;
-    await db.listing.update({ where: { id }, data: { status: $Enums.Status.APPROVED } });
-    // refresh admin and homepage
-    revalidatePath("/admin/listings");
-    revalidatePath("/");
-  }
+  const [items, total] = await Promise.all([
+    db.listing.findMany({
+      where,
+      orderBy: { updatedAt: "desc" },
+      select: {
+        id: true,
+        title: true,
+        city: true,
+        price: true,
+        beds: true,
+        baths: true,
+        status: true,
+        images: true,
+        landlord: {
+          select: {
+            email: true,
+            landlordProfile: { select: { fullName: true } },
+          },
+        },
+        updatedAt: true,
+        createdAt: true,
+      },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    db.listing.count({ where }),
+  ]);
 
-  async function reject(formData: FormData) {
-    "use server";
-    const s = await getSessionFromCookie();
-    if (!canAdmin(s)) throw new Error("Unauthorized");
-    const id = String(formData.get("id") || "");
-    if (!id) return;
-    await db.listing.update({ where: { id }, data: { status: $Enums.Status.REJECTED } });
-    revalidatePath("/admin/listings");
-    revalidatePath("/");
-  }
+  const pages = Math.max(Math.ceil(total / pageSize), 1);
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-2xl font-semibold">Pending listings</h1>
-      <p className="text-gray-600 mt-1">
-        {listings.length === 0 ? "No pending items." : "Review and approve or reject each listing."}
-      </p>
+    <main className="mx-auto max-w-6xl px-4 py-8">
+      <h1 className="text-2xl font-semibold mb-4">Admin • Listings Review</h1>
 
-      <div className="mt-6 overflow-x-auto rounded-xl border">
-        <table className="min-w-full text-sm">
-          <thead className="bg-gray-50 text-left">
-            <tr>
-              <th className="px-4 py-3">Title</th>
-              <th className="px-4 py-3">City</th>
-              <th className="px-4 py-3">Beds</th>
-              <th className="px-4 py-3">Baths</th>
-              <th className="px-4 py-3">Price (CAD)</th>
-              <th className="px-4 py-3">Owner</th>
-              <th className="px-4 py-3">Created</th>
-              <th className="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {listings.map((l) => (
-              <tr key={l.id} className="border-t">
-                <td className="px-4 py-3">
-                  <a className="underline" href={`/listing/${l.id}`} target="_blank">
-                    {l.title || "(no title)"}
-                  </a>
-                </td>
-                <td className="px-4 py-3">{l.city}</td>
-                <td className="px-4 py-3">{l.beds}</td>
-                <td className="px-4 py-3">{l.baths}</td>
-                <td className="px-4 py-3">${(l.price / 100).toLocaleString()}</td>
-                <td className="px-4 py-3">{l.landlord?.name || l.landlord?.email || "—"}</td>
-                <td className="px-4 py-3">{new Date(l.createdAt).toLocaleDateString()}</td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <form action={approve}>
-                      <input type="hidden" name="id" value={l.id} />
-                      <button className="rounded-lg bg-green-600 text-white px-3 py-1.5 hover:opacity-90">
-                        Approve
-                      </button>
-                    </form>
-                    <form action={reject}>
-                      <input type="hidden" name="id" value={l.id} />
-                      <button className="rounded-lg border px-3 py-1.5 hover:bg-gray-50">
-                        Reject
-                      </button>
-                    </form>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="flex items-center gap-2 mb-4">
+        {["PENDING", "APPROVED", "REJECTED", "DRAFT"].map((k) => {
+          const href = `/admin/listings?status=${k}`;
+          const active = k === filterStatus;
+          return (
+            <a
+              key={k}
+              href={href}
+              className={`px-3 py-1.5 rounded-xl border ${active ? "bg-black text-white" : "hover:bg-gray-50"}`}
+            >
+              {k[0] + k.slice(1).toLowerCase()}
+            </a>
+          );
+        })}
+        <div className="ml-auto text-sm text-zinc-600">{total} results</div>
       </div>
+
+      <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {items.map((l) => (
+          <li key={l.id} className="rounded-2xl border overflow-hidden">
+            <div className="aspect-[16/10] bg-gray-100 overflow-hidden">
+              <img
+                src={(Array.isArray(l.images) ? l.images[0] : null) ?? "/placeholder.svg"}
+                alt={l.title}
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <div className="p-4 space-y-2">
+              <div className="font-medium line-clamp-1">{l.title}</div>
+              <div className="text-sm text-zinc-600">{l.city}</div>
+              <div className="text-sm">
+                ${Math.round(l.price / 100)} / <span className="text-zinc-500">month</span>
+              </div>
+              <div className="text-xs text-zinc-600">
+                {l.beds} bed • {l.baths} bath
+              </div>
+              <div className="text-xs text-zinc-500">
+                Host: {l.landlord.landlordProfile?.fullName ?? l.landlord.email}
+              </div>
+              <div className="text-xs text-zinc-500">Status: {l.status}</div>
+
+              {/* Actions */}
+              {l.status === "PENDING" ? (
+                <div className="pt-2 flex gap-2">
+                  <form action={approveListing}>
+                    <input type="hidden" name="id" value={l.id} />
+                    <button className="rounded-xl px-3 py-1.5 border bg-black text-white">
+                      Approve
+                    </button>
+                  </form>
+                  <form action={rejectListing}>
+                    <input type="hidden" name="id" value={l.id} />
+                    <button className="rounded-xl px-3 py-1.5 border">Reject</button>
+                  </form>
+                </div>
+              ) : (
+                <div className="pt-2 text-xs text-zinc-500">
+                  No actions available for this status.
+                </div>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      {/* Pagination */}
+      {pages > 1 && (
+        <div className="mt-8 flex items-center justify-center gap-2">
+          <PageLink status={filterStatus} page={Math.max(page - 1, 1)} disabled={page === 1}>
+            Prev
+          </PageLink>
+          <div className="text-sm">
+            Page {page} of {pages}
+          </div>
+          <PageLink
+            status={filterStatus}
+            page={Math.min(page + 1, pages)}
+            disabled={page === pages}
+          >
+            Next
+          </PageLink>
+        </div>
+      )}
     </main>
+  );
+}
+
+function PageLink({
+  status,
+  page,
+  disabled,
+  children,
+}: {
+  status: string;
+  page: number;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  const href = `/admin/listings?status=${encodeURIComponent(status)}&page=${page}`;
+  return (
+    <a
+      href={href}
+      className={`px-3 py-1.5 rounded-xl border ${
+        disabled ? "pointer-events-none opacity-50" : "hover:bg-gray-50"
+      }`}
+    >
+      {children}
+    </a>
   );
 }
