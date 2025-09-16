@@ -1,7 +1,7 @@
+// src/app/messages/page.tsx
+import Link from "next/link";
 import { requireSession } from "@/lib/auth";
 import { prisma as db } from "@/lib/db";
-import Image from "next/image";
-import Link from "next/link";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,54 +9,54 @@ export const dynamic = "force-dynamic";
 export default async function MessagesPage() {
   const s = await requireSession("/messages");
 
+  // Fetch conversations the user belongs to, newest first
   const convos = await db.conversation.findMany({
     where: { participants: { some: { userId: s.sub } } },
     orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
     select: {
       id: true,
-      listing: { select: { title: true, city: true, images: true } },
+      listing: { select: { title: true } },
       messages: {
-        take: 1,
         orderBy: { createdAt: "desc" },
+        take: 1,
         select: { body: true, createdAt: true, senderId: true },
       },
+      participants: { where: { userId: s.sub }, select: { lastReadAt: true } },
     },
   });
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
-      <h1 className="text-2xl font-semibold mb-4">Messages</h1>
+      <h1 className="text-2xl font-semibold">Messages</h1>
 
-      {convos.length === 0 ? (
-        <p className="text-gray-600">No conversations yet.</p>
+      {!convos.length ? (
+        <p className="mt-6 text-gray-600">No conversations yet.</p>
       ) : (
-        <ul className="divide-y rounded-2xl border">
+        <ul className="mt-6 divide-y rounded-2xl border bg-white">
           {convos.map((c) => {
             const last = c.messages[0];
-            const cover =
-              (Array.isArray(c.listing?.images) ? (c.listing?.images as string[]) : [])[0] ??
-              "/placeholder.svg";
+            const lastAt = last?.createdAt ?? null;
+            const lastRead = c.participants[0]?.lastReadAt ?? null;
+            const unread = lastAt && (!lastRead || lastAt > lastRead);
+            const title = c.listing?.title ?? "Conversation";
             return (
-              <li key={c.id} className="p-4 hover:bg-gray-50 transition">
-                <Link href={`/messages/${c.id}`} className="flex items-center gap-3">
-                  <div className="relative h-14 w-20 overflow-hidden rounded-lg border">
-                    <Image src={cover} alt="" fill className="object-cover" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between">
-                      <p className="font-medium truncate">
-                        {c.listing?.title ?? "Listing"}
-                      </p>
-                      <span className="text-xs text-gray-500">
-                        {last ? timeAgo(last.createdAt) : ""}
-                      </span>
+              <li key={c.id} className="p-4 hover:bg-gray-50">
+                <Link href={`/messages/${c.id}`} className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <h2 className="truncate font-medium">{title}</h2>
+                      {unread && (
+                        <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-medium text-white">
+                          Unread
+                        </span>
+                      )}
                     </div>
-                    <p className="text-sm text-gray-600 truncate">
-                      {last ? last.body : "No messages yet"}
+                    <p className="mt-1 truncate text-sm text-gray-600">
+                      {last ? preview(last.body, 120) : "No messages yet."}
                     </p>
-                    {c.listing?.city && (
-                      <p className="text-xs text-gray-500 mt-0.5">{c.listing.city}</p>
-                    )}
+                    {lastAt ? (
+                      <p className="mt-1 text-xs text-gray-500">{timeAgo(lastAt)}</p>
+                    ) : null}
                   </div>
                 </Link>
               </li>
@@ -68,10 +68,21 @@ export default async function MessagesPage() {
   );
 }
 
-function timeAgo(d: Date) {
-  const diff = (Date.now() - d.getTime()) / 1000;
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-  return `${Math.floor(diff / 86400)}d`;
+/* ---------- small helpers ---------- */
+
+function preview(text: string, max = 100) {
+  const s = text.replace(/\s+/g, " ").trim();
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+function timeAgo(date: Date) {
+  const ms = Date.now() - date.getTime();
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return "Just now";
+  const mins = Math.round(sec / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  return `${days}d ago`;
 }

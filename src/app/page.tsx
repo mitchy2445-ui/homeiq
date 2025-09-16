@@ -4,12 +4,14 @@ import { HOME_CITIES } from "@/config/cities";
 import Section from "@/components/Section";
 import type { ListingCardProps } from "@/components/ListingCard";
 import Link from "next/link";
-import type { Listing } from "@prisma/client";
+import type { Listing, Prisma } from "@prisma/client";
 
+export const dynamic = "force-dynamic"; // fresh data on each request
 
-export const dynamic = "force-dynamic"; // fresh data on each request (great for dev)
+/* ---------------------------------------------
+ * Helpers
+ * --------------------------------------------*/
 
-// ---- helpers ----
 function formatPrice(cents: number) {
   return `$${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 0 })} / mo`;
 }
@@ -27,52 +29,55 @@ function firstImage(images: unknown): string | null {
 }
 
 function toCard(l: Listing): ListingCardProps {
-
   return {
     id: l.id,
     title: l.title ?? "Untitled",
     city: l.city ?? undefined,
-    priceCents: typeof l.price === "number" ? l.price : 0, // your schema uses `price` in cents
+    priceCents: typeof l.price === "number" ? l.price : 0, // schema uses cents
     beds: typeof l.beds === "number" ? l.beds : undefined,
     baths: typeof l.baths === "number" ? l.baths : undefined,
     images: jsonToStringArray(l.images),
   };
 }
 
+/* ---------------------------------------------
+ * Data
+ * --------------------------------------------*/
+
+async function getApprovedByCity(city: string, limit = 12) {
+  // Newest APPROVED listings for a specific city
+  return prisma.listing.findMany({
+    where: { status: "APPROVED", city },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+}
+
+async function getLatestApprovedExcluding(excludeIds: string[], limit = 24) {
+  return prisma.listing.findMany({
+    where: excludeIds.length ? { status: "APPROVED", id: { notIn: excludeIds } } : { status: "APPROVED" },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+}
+
+/* ---------------------------------------------
+ * Page
+ * --------------------------------------------*/
+
 export default async function Home() {
-  // ----- Curated rows (by HOME_CITIES) -----
-  const curatedCities = HOME_CITIES.map((c) => c.city);
+  // Pull per-city rows independently so each carousel is fresh for that city
+  const perCityResults = await Promise.all(
+    HOME_CITIES.map(({ city }) => getApprovedByCity(city, 12))
+  );
 
-  const curatedListings = await prisma.listing.findMany({
-    where: { status: "APPROVED", city: { in: curatedCities } },
-    orderBy: { createdAt: "desc" },
-    take: 48,
-  });
-
-  // Group by city
-  const byCity = new Map<string, typeof curatedListings>();
-  for (const c of curatedCities) byCity.set(c, []);
-  for (const l of curatedListings) {
-    byCity.set(l.city, [ ...(byCity.get(l.city) ?? []), l ]);
-  }
-
-  // Track IDs shown in curated rows (avoid duplicates in Latest)
+  // Track IDs shown in curated carousels to avoid duplicates in "Latest"
   const shownIds = new Set<string>();
-  for (const c of curatedCities) {
-    const rows = byCity.get(c) ?? [];
-    for (const l of rows.slice(0, 8)) shownIds.add(l.id);
-  }
+  perCityResults.forEach((rows) => rows.forEach((l) => shownIds.add(l.id)));
 
-  // ----- Latest approved (fallback, any city) -----
-  const latestApproved = await prisma.listing.findMany({
-    where: { status: "APPROVED" },
-    orderBy: { createdAt: "desc" },
-    take: 24,
-  });
-
-  const latestToShow = latestApproved
-    .filter((l) => !shownIds.has(l.id))
-    .slice(0, 12);
+  // Latest (any city), excluding already shown
+  const latestApproved = await getLatestApprovedExcluding([...shownIds], 24);
+  const latestToShow = latestApproved.slice(0, 12);
 
   return (
     <main className="min-h-screen">
@@ -86,17 +91,17 @@ export default async function Home() {
         </p>
       </section>
 
-      {/* Curated rows per city — now rendered as HORIZONTAL carousels */}
+      {/* Curated rows per city — horizontal carousels */}
       <div className="mt-10 space-y-8">
-        {HOME_CITIES.map(({ city, tagline }) => {
-          const rows = byCity.get(city) ?? [];
-          const items: ListingCardProps[] = rows.slice(0, 12).map(toCard);
+        {HOME_CITIES.map(({ city, tagline }, idx) => {
+          const rows = perCityResults[idx] ?? [];
+          const items: ListingCardProps[] = rows.map(toCard);
           if (items.length === 0) return null;
 
-          // `Section` -> horizontal scroll, hidden scrollbar, arrow buttons on desktop
+          // Use /listings?city=... so this matches your listings page
           return (
             <div key={city} className="mx-auto max-w-[1440px] px-4 md:px-6 lg:px-8">
-              <Section title={tagline} href={`/search?city=${encodeURIComponent(city)}`} listings={items} />
+              <Section title={tagline} href={`/listings?city=${encodeURIComponent(city)}`} listings={items} />
             </div>
           );
         })}
@@ -117,8 +122,8 @@ export default async function Home() {
                 >
                   <div className="aspect-[4/3] bg-gray-100">
                     {/* Use <img> so random external hosts work while testing */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     {cover ? (
-                      // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={cover}
                         alt={l.title || "Listing photo"}

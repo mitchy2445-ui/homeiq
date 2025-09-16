@@ -82,12 +82,23 @@ model User {
   name          String?
   passwordHash  String?
   role          Role      @default(USER)
+
+  // EXISTING (email verification)
   emailVerified DateTime?
+
+  // NEW — landlord identity gate (top-level mirror of LandlordProfile + OTPs)
+  verificationStatus IdStatus  @default(UNVERIFIED) // UNVERIFIED|PENDING|VERIFIED|REJECTED
+  verifiedAt         DateTime?
+  phoneVerifiedAt    DateTime? // optional: if you prefer to keep it only in LandlordProfile, you can remove this
+  emailVerifiedAt    DateTime? // separate from emailVerified if you want explicit “verification flow” timestamp
+  idCheckProvider    String?
+  idCheckSessionId   String?
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   listings           Listing[]
-  verificationTokens VerificationToken[] // keep as an array if you issue multiple tokens
+  verificationTokens VerificationToken[]
   landlordProfile    LandlordProfile? // 1:1 side
 
   conversationMemberships ConversationParticipant[] @relation("ConversationMembers")
@@ -109,7 +120,7 @@ model VerificationToken {
 }
 
 /**
- * NEW: landlord onboarding & verification
+ * Landlord onboarding & verification
  */
 model LandlordProfile {
   id String @id @default(cuid())
@@ -129,6 +140,7 @@ model LandlordProfile {
   country         String
   postal          String
 
+  // ID / KYC
   idStatus      IdStatus @default(UNVERIFIED)
   kycProvider   String?
   kycRef        String?
@@ -163,9 +175,9 @@ model Listing {
   videoUrl String?
 
   // Property metadata & neighborhood/amenities
-  propertyType     String?
-  neighborhoodVibe NeighborhoodVibe?
-  areaType         AreaType?
+  propertyType      String?
+  neighborhoodVibe  NeighborhoodVibe?
+  areaType          AreaType?
 
   distanceBusMeters      Int?
   distanceGroceryMeters  Int?
@@ -191,13 +203,17 @@ model Listing {
 
   depositCents Int?
 
+  // NEW — verification/map + structured insights for the details page
+  locationVerified Boolean @default(false)
+  insights         Json?   // neighborhood insights block (transit, shops, vibe, etc.)
+
   // Messaging back-relation
   conversations Conversation[] @relation("ListingConversations")
 
   // Favorites back-relation
   favoritedBy Favorite[]
 
-  // NEW: ViewingRequest back-relation
+  // ViewingRequest back-relation
   viewingRequests ViewingRequest[]
 }
 
@@ -255,14 +271,13 @@ model Favorite {
 /**
  * ----------------------- Viewing Requests ----------------------
  */
-
 model ViewingRequest {
   id         String @id @default(cuid())
   listingId  String
   renterId   String
   landlordId String
 
-  note String? // SQLite: no @db.Text
+  note String?
 
   // up to 3 proposed slots in UTC
   slot1Start DateTime?

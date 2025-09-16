@@ -8,7 +8,7 @@ import { revalidatePath } from "next/cache";
 /**
  * Helpers
  */
-function assert(cond: any, msg = "Invalid request"): asserts cond {
+function assert(cond: unknown, msg = "Invalid request"): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
@@ -18,8 +18,8 @@ async function ensureOwner(listingId: string, userId: string) {
     select: { id: true, landlordId: true, status: true },
   });
   assert(li, "Listing not found");
-  assert(li!.landlordId === userId, "Forbidden");
-  return li!;
+  assert(li.landlordId === userId, "Forbidden");
+  return li;
 }
 
 /**
@@ -65,7 +65,7 @@ export async function approveListing(formData: FormData) {
     select: { status: true },
   });
   assert(li, "Listing not found");
-  assert(li!.status === "PENDING", "Only pending listings can be approved");
+  assert(li.status === "PENDING", "Only pending listings can be approved");
 
   await db.listing.update({
     where: { id },
@@ -96,7 +96,7 @@ export async function rejectListing(formData: FormData) {
     select: { status: true },
   });
   assert(li, "Listing not found");
-  assert(li!.status === "PENDING", "Only pending listings can be rejected");
+  assert(li.status === "PENDING", "Only pending listings can be rejected");
 
   await db.listing.update({
     where: { id },

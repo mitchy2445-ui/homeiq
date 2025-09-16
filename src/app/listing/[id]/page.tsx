@@ -1,316 +1,404 @@
 // src/app/listing/[id]/page.tsx
-import { notFound } from "next/navigation";
 import Image from "next/image";
-import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
 import { prisma as db } from "@/lib/db";
-import type { Prisma } from "@prisma/client";
-import Button from "@/components/ui/Button";
-import SimilarListings from "./SimilarListings";
-
-// Icons
+import { requireSession } from "@/lib/auth";
 import {
-  BedDouble,
-  Bath,
-  Ruler,
   MapPin,
-  Wifi,
+  BedDouble,
+  ShowerHead,
+  DollarSign,
   Car,
-  Snowflake,
-  Tv,
-  Waves,
-  WashingMachine,
-  Utensils,
-  Dumbbell,
   PawPrint,
-  Flame,
-  Leaf,
-  Building, // use instead of Elevator
+  Plug,
+  Sofa,
+  Thermometer,
+  Wind,
+  CheckCircle2,
+  PlayCircle,
 } from "lucide-react";
+import RequestViewingButton from "./RequestViewingButton";
 
-/* ----------------------------- helpers ---------------------------------- */
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-function formatCurrency(n: number) {
-  return n.toLocaleString("en-CA", {
-    style: "currency",
-    currency: "CAD",
-    maximumFractionDigits: 0,
-  });
-}
-
-function jsonToStringArray(v: Prisma.JsonValue | null | undefined): string[] {
-  if (!v) return [];
-  if (Array.isArray(v) && v.every((x) => typeof x === "string")) return v as string[];
-  return [];
-}
-
-// normalize amenity strings for icon lookup
-function normalizeAmenity(s: string) {
-  return s.trim().toLowerCase();
-}
-
-// Map common amenity names to icons (expand anytime)
-type IconCmp = React.ComponentType<{ className?: string }>;
-const AMENITY_ICON_MAP: Record<string, IconCmp> = {
-  wifi: Wifi,
-  parking: Car,
-  "free parking": Car,
-  "air conditioning": Snowflake,
-  ac: Snowflake,
-  pool: Waves,
-  tv: Tv,
-  washer: WashingMachine,
-  dryer: WashingMachine,
-  kitchen: Utensils,
-  gym: Dumbbell,
-  "pets allowed": PawPrint,
-  elevator: Building, // fallback icon
-  fireplace: Flame,
-  balcony: Leaf,
-  patio: Leaf,
-};
-
-/* ------------------------------- types ---------------------------------- */
-
-type PageParams = { id: string };
-type PageProps = { params: Promise<PageParams> };
-
-type ListingWithLandlordLite = Prisma.ListingGetPayload<{
-  include: {
-    landlord: {
-      select: {
-        id: true;
-        name: true;
-        email: true;
-      };
-    };
-  };
-}>;
-
-/* ------------------------------- SEO ---------------------------------- */
-
-// Optional SEO for each listing page
-export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export default async function ListingDetail({
+  params,
+}: {
+  params: { id: string };
+}) {
   const listing = await db.listing.findUnique({
-    where: { id },
-    select: { title: true, city: true, description: true },
-  });
-
-  if (!listing) {
-    return { title: "Listing not found — HOMEIQ" };
-  }
-
-  const title = `${listing.title ?? "Listing"} — ${listing.city ?? "Canada"} | HOMEIQ`;
-  const description = listing.description?.slice(0, 150) ?? "Find your next home on HOMEIQ.";
-
-  return { title, description };
-}
-
-/* -------------------------------- page ---------------------------------- */
-
-export default async function ListingPage({ params }: PageProps) {
-  // Next.js 15: params is a Promise
-  const { id } = await params;
-
-  const listing: ListingWithLandlordLite | null = await db.listing.findUnique({
-    where: { id }, // string id
-    include: {
-      landlord: { select: { id: true, name: true, email: true } }, // avoid passwordHash
+    where: { id: params.id },
+    select: {
+      id: true,
+      status: true,
+      title: true,
+      city: true,
+      price: true,
+      beds: true,
+      baths: true,
+      description: true,
+      images: true,
+      videoUrl: true,
+      neighborhoodVibe: true,
+      areaType: true,
+      distanceBusMeters: true,
+      distanceGroceryMeters: true,
+      distanceSchoolMeters: true,
+      distanceParkMeters: true,
+      distancePharmacyMeters: true,
+      distanceGymMeters: true,
+      depositCents: true,
+      parkingType: true,
+      petPolicy: true,
+      laundry: true,
+      utilitiesIncluded: true,
+      smokingAllowed: true,
+      furnished: true,
+      minLeaseMonths: true,
+      maxOccupants: true,
+      heating: true,
+      cooling: true,
+      landlordId: true,
+      landlord: {
+        select: {
+          landlordProfile: { select: { fullName: true } },
+          name: true,
+        },
+      },
     },
   });
 
   if (!listing) notFound();
 
-  const images = jsonToStringArray(listing.images);
-  const amenities = jsonToStringArray(
-    (listing as unknown as { amenities?: Prisma.JsonValue }).amenities,
-  );
-  const videos = jsonToStringArray(
-    (listing as unknown as { videos?: Prisma.JsonValue }).videos,
-  );
+  const photos = jsonStrArr(listing.images);
+  const cover = photos[0] ?? "/placeholder.svg";
+  const price = centsToDollars(listing.price);
+  const deposit =
+    typeof listing.depositCents === "number"
+      ? `$${(listing.depositCents / 100).toFixed(0)}`
+      : null;
+  const utilities = jsonStrArr(listing.utilitiesIncluded);
+  const landlordName =
+    listing.landlord?.landlordProfile?.fullName ||
+    listing.landlord?.name ||
+    "Landlord";
+
+  const highlightChips = buildHighlights({
+    beds: listing.beds,
+    baths: listing.baths,
+    furnished: listing.furnished,
+    petPolicy: listing.petPolicy,
+    parkingType: listing.parkingType,
+    laundry: listing.laundry,
+    neighborhoodVibe: listing.neighborhoodVibe,
+    areaType: listing.areaType,
+    minLeaseMonths: listing.minLeaseMonths,
+    maxOccupants: listing.maxOccupants,
+  });
+
+  /* ---------- actions ---------- */
+  async function contactLandlord(): Promise<void> {
+    "use server";
+    const s = await requireSession(`/listing/${params.id}`);
+
+    const li = await db.listing.findUnique({
+      where: { id: params.id },
+      select: { id: true, title: true, landlordId: true },
+    });
+
+    if (!li?.landlordId) redirect("/messages");
+    if (li.landlordId === s.sub) redirect("/messages");
+
+    const existing = await db.conversation.findFirst({
+      where: { listingId: li.id, participants: { some: { userId: s.sub } } },
+      select: { id: true },
+    });
+
+    const convoId =
+      existing?.id ??
+      (
+        await db.conversation.create({
+          data: {
+            listingId: li.id,
+            participants: { create: [{ userId: s.sub }, { userId: li.landlordId }] },
+            lastMessageAt: new Date(),
+          },
+          select: { id: true },
+        })
+      ).id;
+
+    if (!existing) {
+      await db.message.create({
+        data: {
+          conversationId: convoId,
+          senderId: s.sub,
+          body: `Hi there! I'm interested in "${li.title}". Is it still available?`,
+        },
+      });
+      await db.conversation.update({
+        where: { id: convoId },
+        data: { lastMessageAt: new Date() },
+      });
+    }
+
+    redirect(`/messages/${convoId}`);
+  }
+
+  // Toggle favorite, then go to /favorites so the user sees it immediately
+  async function toggleFavorite(): Promise<void> {
+    "use server";
+    const s = await requireSession(`/listing/${params.id}`);
+    const key = { userId: s.sub, listingId: params.id };
+
+    await db.$transaction(async (tx) => {
+      const exists = await tx.favorite.findUnique({
+        where: { userId_listingId: key },
+        select: { listingId: true },
+      });
+      if (exists) {
+        await tx.favorite.delete({ where: { userId_listingId: key } });
+      } else {
+        await tx.favorite.create({ data: key });
+      }
+    });
+
+    // Immediate confirmation UX:
+    redirect("/favorites");
+    // If you prefer to stay on the page, comment the redirect and uncomment:
+    // revalidatePath(`/listing/${params.id}`);
+  }
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
-      {/* Back link */}
-      <div className="mb-6">
-        <Link href="/" className="text-sm underline hover:opacity-80">
-          ← Back to Home
-        </Link>
-      </div>
-
-      {/* Title + location */}
-      <header className="mb-3">
-        <h1 className="text-3xl font-semibold tracking-tight">{listing.title}</h1>
-        <p className="flex items-center gap-2 text-muted-foreground">
+      {/* Title + Location */}
+      <div>
+        <h1 className="text-4xl font-semibold tracking-tight">{listing.title}</h1>
+        <p className="mt-1 flex items-center gap-2 text-gray-600">
           <MapPin className="h-4 w-4" />
           <span>{listing.city}</span>
         </p>
-      </header>
+      </div>
 
-      {/* --- Gallery (1 big + 4 small) --- */}
-      {images.length > 0 ? (
-        <section className="mb-8 grid grid-cols-1 gap-2 md:grid-cols-4">
-          {/* Large hero */}
-          <div className="relative overflow-hidden rounded-2xl md:col-span-2 md:row-span-2 aspect-[16/11] md:aspect-[4/3]">
-            <Image
-              src={images[0]}
-              alt={listing.title}
-              fill
-              priority
-              className="object-cover"
-            />
-          </div>
-          {/* Up to 4 supporting images */}
-          {[images[1], images[2], images[3], images[4]]
-            .filter(Boolean)
-            .map((src, i) => (
-              <div
-                key={i}
-                className="relative hidden overflow-hidden rounded-2xl md:block aspect-[4/3]"
-              >
-                <Image src={src as string} alt={`photo ${i + 2}`} fill className="object-cover" />
-              </div>
-            ))}
-        </section>
-      ) : (
-        <div className="mb-8 h-64 rounded-2xl bg-gray-200" />
-      )}
-
-      {/* Videos (uploaded from device) */}
-      {videos.length > 0 && (
-        <section className="mb-8">
-          <h3 className="mb-3 text-lg font-semibold">Videos</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {videos.map((src, i) => (
-              <video key={i} src={src} className="w-full rounded-2xl border" controls />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Main two-column layout */}
-      <div className="grid grid-cols-1 gap-10 md:grid-cols-[1.1fr_0.9fr]">
-        {/* LEFT: details */}
-        <section className="space-y-8">
-          {/* Quick facts with icons */}
-          <div className="flex flex-wrap items-center gap-6 text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <BedDouble className="h-5 w-5" />
-              <span className="text-sm">
-                {listing.beds} {listing.beds === 1 ? "bedroom" : "bedrooms"}
-              </span>
+      {/* Media grid */}
+      <section className="mt-6 grid gap-3 md:grid-cols-3">
+        <div className="relative aspect-[16/10] md:col-span-2 overflow-hidden rounded-2xl">
+          <Image src={cover} alt="Cover" fill className="object-cover" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {photos.slice(1, 5).map((url) => (
+            <div key={url} className="relative aspect-[16/10] overflow-hidden rounded-2xl">
+              <Image src={url} alt="Photo" fill className="object-cover" />
             </div>
-            <div className="flex items-center gap-2">
-              <Bath className="h-5 w-5" />
-              <span className="text-sm">
-                {listing.baths} {listing.baths === 1 ? "bathroom" : "bathrooms"}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Ruler className="h-5 w-5" />
-              <span className="text-sm">Spacious layout</span>
-            </div>
-          </div>
+          ))}
+        </div>
+      </section>
 
-          {/* About */}
-          <div>
-            <h2 className="mb-3 text-xl font-semibold">About this place</h2>
-            <p className="leading-relaxed">
-              {listing.description ?? "No description provided."}
-            </p>
-          </div>
+      {/* top facts / badges */}
+      <section className="mt-5 flex flex-wrap gap-2">
+        <Badge icon={BedDouble} label={`${listing.beds} bedrooms`} />
+        <Badge icon={ShowerHead} label={`${listing.baths} bathrooms`} />
+        {deposit && <Badge icon={DollarSign} label={`Deposit: ${deposit}`} />}
+        {listing.videoUrl && <Badge icon={PlayCircle} label="Video tour included" />}
+      </section>
 
-          {/* Amenities */}
-          {amenities.length > 0 && (
-            <div>
-              <h3 className="mb-3 text-lg font-semibold">Amenities</h3>
-              <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {amenities.map((raw) => {
-                  const key = normalizeAmenity(raw);
-                  const Icon = AMENITY_ICON_MAP[key];
-                  return (
-                    <li
-                      key={raw}
-                      className="flex items-center gap-2 text-sm text-muted-foreground"
-                    >
-                      {Icon ? (
-                        <Icon className="h-4 w-4" />
-                      ) : (
-                        <Leaf className="h-4 w-4 opacity-50" />
-                      )}
-                      <span className="capitalize">{raw}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
+      <div className="mt-8 grid gap-8 md:grid-cols-[1fr_380px]">
+        {/* Left column */}
+        <div className="space-y-8">
+          <Card title="About this place">
+            {listing.description && listing.description.trim() ? (
+              <p className="leading-7 text-gray-800 whitespace-pre-line">
+                {listing.description}
+              </p>
+            ) : (
+              <EmptyAbout fallbackChips={highlightChips} />
+            )}
+          </Card>
+
+          {listing.videoUrl && (
+            <Card title="Video tour">
+              <video controls src={listing.videoUrl} className="w-full rounded-xl border" />
+            </Card>
           )}
 
-          {/* Location placeholder */}
-          <div>
-            <h3 className="mb-3 text-lg font-semibold">Location</h3>
-            <div className="h-64 w-full rounded-2xl border bg-gray-50" />
-          </div>
+          <Card title="Neighborhood">
+            <ul className="grid sm:grid-cols-2 gap-3 text-sm">
+              <Row label="Vibe" value={enumLabel(listing.neighborhoodVibe)} />
+              <Row label="Area type" value={enumLabel(listing.areaType)} />
+              <Row label="Bus stop" value={meters(listing.distanceBusMeters)} />
+              <Row label="Grocery" value={meters(listing.distanceGroceryMeters)} />
+              <Row label="School" value={meters(listing.distanceSchoolMeters)} />
+              <Row label="Park" value={meters(listing.distanceParkMeters)} />
+              <Row label="Pharmacy" value={meters(listing.distancePharmacyMeters)} />
+              <Row label="Gym" value={meters(listing.distanceGymMeters)} />
+            </ul>
+          </Card>
 
-          {/* Legacy embedded video URL (only if present) */}
-          {listing.videoUrl ? (
-            <div>
-              <h3 className="mb-3 text-lg font-semibold">Virtual viewing</h3>
-              <div className="aspect-video overflow-hidden rounded-2xl">
-                <iframe
-                  src={listing.videoUrl}
-                  className="h-full w-full"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
-                  title="Virtual viewing"
+          <Card title="Pricing & Policies">
+            <ul className="grid sm:grid-cols-2 gap-3 text-sm">
+              <Row label="Parking" value={enumLabel(listing.parkingType)} icon={Car} />
+              <Row label="Pets" value={enumLabel(listing.petPolicy)} icon={PawPrint} />
+              <Row label="Laundry" value={enumLabel(listing.laundry)} icon={Sofa} />
+              <Row
+                label="Utilities included"
+                value={utilities.length ? utilities.join(", ") : "—"}
+                icon={Plug}
+              />
+              <Row label="Smoking allowed" value={listing.smokingAllowed ? "Yes" : "No"} />
+              <Row label="Furnished" value={listing.furnished ? "Yes" : "No"} icon={Sofa} />
+              <Row
+                label="Min lease"
+                value={listing.minLeaseMonths ? `${listing.minLeaseMonths} mo` : "—"}
+              />
+              <Row label="Max occupants" value={listing.maxOccupants ?? "—"} />
+              <Row label="Heating" value={listing.heating ?? "—"} icon={Thermometer} />
+              <Row label="Cooling" value={listing.cooling ?? "—"} icon={Wind} />
+            </ul>
+          </Card>
+        </div>
+
+        {/* Right column: price + actions */}
+        <aside className="space-y-4">
+          <div className="rounded-2xl border p-5">
+            <div className="text-3xl font-semibold">
+              {price ? `${price} /` : "— /"}
+              <span className="text-xl font-normal text-gray-600"> month</span>
+            </div>
+            <p className="mt-1 text-gray-600">
+              {listing.beds} bed • {listing.baths} bath
+            </p>
+
+            <div className="mt-5 grid gap-2">
+              <form action={contactLandlord}>
+                <button className="w-full rounded-xl bg-emerald-600 text-white py-3 font-medium hover:opacity-95">
+                  Contact landlord
+                </button>
+              </form>
+
+              {/* NEW: Request virtual viewing (requires RequestViewingButton.tsx) */}
+              {listing.landlordId && (
+                <RequestViewingButton
+                  listingId={listing.id}
+                  landlordId={listing.landlordId}
                 />
-              </div>
-            </div>
-          ) : null}
-        </section>
+              )}
 
-        {/* RIGHT: sticky booking/contact card */}
-        <aside className="md:sticky md:top-24">
-          <div className="rounded-3xl border p-6 shadow-sm">
-            <div className="mb-5 flex items-start justify-between">
-              <div>
-                <div className="text-3xl font-semibold leading-tight">
-                  {formatCurrency(listing.price)}
-                  <span className="ml-2 text-base font-normal text-muted-foreground">
-                    / month
-                  </span>
-                </div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  {listing.beds} bed · {listing.baths} bath
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Landlord
-                </div>
-                <div className="font-medium">
-                  {listing.landlord?.name ?? "HOMEIQ Landlord"}
-                </div>
-              </div>
+              <form action={toggleFavorite}>
+                <button className="w-full rounded-xl border py-2 font-medium hover:bg-gray-50">
+                  Save to favorites
+                </button>
+              </form>
             </div>
 
-            <div className="space-y-3">
-              <Button type="button">Contact landlord</Button>
-              <Button type="button" variant="outline">
-                Save to favorites
-              </Button>
-            </div>
-
-            <div className="mt-5 rounded-xl bg-gray-50 p-4 text-sm text-muted-foreground">
-              You won’t be charged yet. First month + service fee is paid through
-              HOMEIQ; subsequent rent is paid directly to the landlord.
+            <div className="mt-5 rounded-xl border bg-gray-50 p-3 text-sm text-gray-600">
+              <div className="mb-1 text-xs tracking-wide text-gray-500">LANDLORD</div>
+              <div className="font-medium">{landlordName}</div>
             </div>
           </div>
         </aside>
       </div>
-
-      {/* Similar listings */}
-      <SimilarListings city={listing.city} excludeId={listing.id} />
     </main>
   );
+}
+
+/* ---------------- helpers & small components ---------------- */
+
+function jsonStrArr(v: unknown): string[] {
+  return Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]) : [];
+}
+function centsToDollars(cents?: number | null): string | null {
+  if (typeof cents !== "number") return null;
+  return `$${(cents / 100).toFixed(0)}`;
+}
+function meters(n?: number | null): string {
+  return typeof n === "number" ? `${n} m` : "—";
+}
+function enumLabel(v?: string | null): string {
+  if (!v) return "—";
+  return String(v).replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+function Badge({
+  icon: Icon,
+  label,
+}: {
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  label: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm bg-white/60">
+      <Icon className="h-4 w-4 text-gray-700" />
+      <span>{label}</span>
+    </span>
+  );
+}
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-2xl border p-5">
+      <h2 className="text-lg font-semibold">{title}</h2>
+      <div className="mt-3">{children}</div>
+    </section>
+  );
+}
+function Row({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string | number;
+  icon?: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+}) {
+  return (
+    <li className="flex items-center justify-between rounded-lg border px-3 py-2">
+      <span className="flex items-center gap-2 text-gray-500">
+        {Icon ? <Icon className="h-4 w-4" /> : null}
+        {label}
+      </span>
+      <span className="font-medium">{value}</span>
+    </li>
+  );
+}
+function EmptyAbout({ fallbackChips }: { fallbackChips: string[] }) {
+  return (
+    <div className="rounded-xl border bg-gray-50 p-4">
+      <p className="text-gray-600">
+        The host hasn’t written a description yet. Here are a few highlights:
+      </p>
+      {fallbackChips.length > 0 && (
+        <ul className="mt-3 grid sm:grid-cols-2 gap-2">
+          {fallbackChips.slice(0, 8).map((h) => (
+            <li key={h} className="flex items-center gap-2 text-gray-800">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <span>{h}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+function buildHighlights(args: {
+  beds?: number | null;
+  baths?: number | null;
+  furnished?: boolean | null;
+  petPolicy?: string | null;
+  parkingType?: string | null;
+  laundry?: string | null;
+  neighborhoodVibe?: string | null;
+  areaType?: string | null;
+  minLeaseMonths?: number | null;
+  maxOccupants?: number | null;
+}): string[] {
+  const chips: string[] = [];
+  if (typeof args.beds === "number") chips.push(`${args.beds} bedrooms`);
+  if (typeof args.baths === "number") chips.push(`${args.baths} bathrooms`);
+  if (args.furnished != null) chips.push(args.furnished ? "Furnished" : "Unfurnished");
+  if (args.petPolicy) chips.push(`Pets: ${enumLabel(args.petPolicy)}`);
+  if (args.parkingType) chips.push(`Parking: ${enumLabel(args.parkingType)}`);
+  if (args.laundry) chips.push(`Laundry: ${enumLabel(args.laundry)}`);
+  if (args.neighborhoodVibe) chips.push(`Vibe: ${enumLabel(args.neighborhoodVibe)}`);
+  if (args.areaType) chips.push(`Area: ${enumLabel(args.areaType)}`);
+  if (typeof args.minLeaseMonths === "number") chips.push(`Min lease ${args.minLeaseMonths} mo`);
+  if (typeof args.maxOccupants === "number") chips.push(`Max ${args.maxOccupants} occupants`);
+  return chips;
 }

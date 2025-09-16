@@ -15,6 +15,7 @@ import {
   FiLogIn,
   FiUserPlus,
   FiHome,
+  FiCalendar, // NEW
 } from "react-icons/fi";
 import type { $Enums } from "@prisma/client";
 
@@ -48,6 +49,7 @@ export default function Header() {
   const isLoggedIn = !!me;
   const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL?.toLowerCase() ?? "";
   const showAdmin = me?.role === "ADMIN" || me?.email?.toLowerCase() === adminEmail;
+  const isHost = me?.role === "LANDLORD" || showAdmin; // NEW
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -73,10 +75,36 @@ export default function Header() {
         {/* Right-side quick actions */}
         <nav className="ml-auto flex items-center gap-3">
           {/* Become a Landlord (visible always; gated server-side later) */}
-          <Link href="/host" className="hidden sm:inline-flex items-center gap-2 text-sm font-medium hover:underline">
+          <Link
+            href="/host"
+            className="hidden sm:inline-flex items-center gap-2 text-sm font-medium hover:underline"
+          >
             <FiHome className="h-4 w-4" />
             Become a Landlord
           </Link>
+
+          {/* NEW: Quick Viewings shortcut for hosts (desktop) */}
+          {isHost && (
+            <Link
+              href="/host/viewings"
+              className="hidden sm:inline-flex items-center gap-2 text-sm font-medium hover:underline"
+              title="Manage viewing requests"
+            >
+              <FiCalendar className="h-4 w-4" />
+              Viewings
+            </Link>
+          )}
+
+          {/* Renter: My Viewings (desktop) */}
+          {isLoggedIn && (
+            <Link
+              href="/viewings"
+              className="hidden sm:inline-flex items-center gap-2 text-sm font-medium hover:underline"
+              title="My viewing requests"
+            >
+              Viewings
+            </Link>
+          )}
 
           <Link
             aria-label="Favorites"
@@ -129,7 +157,7 @@ export default function Header() {
             </div>
           )}
 
-          {/* Hamburger menu (Admin Center lives here) */}
+          {/* Hamburger menu (Admin & Host live here) */}
           <div className="relative">
             <button
               type="button"
@@ -163,7 +191,6 @@ export default function Header() {
                         className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50"
                         onClick={() => setMenuOpen(false)}
                       >
-                        {/* simple shield emoji or keep clean text; could also use a lucide icon if you prefer */}
                         <span className="inline-block h-4 w-4 rounded-full bg-gray-900" />
                         <span>Admin Center</span>
                       </Link>
@@ -178,6 +205,31 @@ export default function Header() {
                       <FiUser className="h-4 w-4" />
                       <span>Account</span>
                     </Link>
+
+                    {/* NEW: Host links */}
+                    {isHost && (
+                      <>
+                        <div className="mt-2 px-3 py-1 text-xs text-gray-500">Host</div>
+                        <Link
+                          href="/host/listings"
+                          role="menuitem"
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50"
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          <FiHome className="h-4 w-4" />
+                          <span>My Listings</span>
+                        </Link>
+                        <Link
+                          href="/host/viewings"
+                          role="menuitem"
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50"
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          <FiCalendar className="h-4 w-4" />
+                          <span>Viewings</span>
+                        </Link>
+                      </>
+                    )}
 
                     <div className="my-2 h-px bg-gray-100" />
 
