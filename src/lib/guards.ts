@@ -1,40 +1,38 @@
-import { prisma as db } from '@/lib/db';
-import { getSessionFromCookie } from '@/lib/auth';
-import { redirect } from 'next/navigation';
-
+import { prisma as db } from "@/lib/db";
+import { redirect } from "next/navigation";
+import { getCurrentUserId } from "./currentUser";
 
 export async function requireSession(next?: string) {
-const session = await getSessionFromCookie();
-if (!session?.user?.id) {
-const dest = next ? `/login?next=${encodeURIComponent(next)}` : '/login';
-redirect(dest);
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    const dest = next ? `/login?next=${encodeURIComponent(next)}` : "/login";
+    redirect(dest);
+  }
+  // return a minimal shape (add more if you need)
+  return { user: { id: userId! } };
 }
-return session;
-}
-
 
 export async function requireVerifiedUser() {
-const session = await requireSession('/landlord/verify');
-const user = await db.user.findUnique({
-where: { id: session.user.id },
-select: { verificationStatus: true },
-});
-if (!user) redirect('/login');
-if (user.verificationStatus !== 'VERIFIED') redirect('/landlord/verify');
-return session;
+  const { user } = await requireSession("/landlord/verify");
+  const u = await db.user.findUnique({
+    where: { id: user.id },
+    select: { verificationStatus: true },
+  });
+  if (!u) redirect("/login");
+  if (u.verificationStatus !== "VERIFIED") redirect("/landlord/verify");
+  return { user };
 }
 
-
 export async function getUserVerificationStatus() {
-const session = await getSessionFromCookie();
-if (!session?.user?.id) return 'UNAUTHENTICATED' as const;
-const u = await db.user.findUnique({
-where: { id: session.user.id },
-select: { verificationStatus: true },
-});
-return (u?.verificationStatus ?? 'UNVERIFIED') as
-| 'UNVERIFIED'
-| 'PENDING'
-| 'VERIFIED'
-| 'REJECTED';
+  const userId = await getCurrentUserId();
+  if (!userId) return "UNAUTHENTICATED" as const;
+  const u = await db.user.findUnique({
+    where: { id: userId },
+    select: { verificationStatus: true },
+  });
+  return (u?.verificationStatus ?? "UNVERIFIED") as
+    | "UNVERIFIED"
+    | "PENDING"
+    | "VERIFIED"
+    | "REJECTED";
 }
