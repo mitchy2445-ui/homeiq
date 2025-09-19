@@ -77,29 +77,34 @@ enum ViewingStatus {
  * ---------------------------- Models ---------------------------
  */
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
+  id            String   @id @default(cuid())
+  email         String   @unique
   name          String?
   passwordHash  String?
-  role          Role      @default(USER)
+  role          Role     @default(USER)
 
-  // EXISTING (email verification)
-  emailVerified DateTime?
+  // Email verification (you’re using both in code, keep both for now)
+  emailVerified   DateTime?  // legacy check in auth/login route
+  emailVerifiedAt DateTime?  // used by verify page
 
-  // NEW — landlord identity gate (top-level mirror of LandlordProfile + OTPs)
-  verificationStatus IdStatus  @default(UNVERIFIED) // UNVERIFIED|PENDING|VERIFIED|REJECTED
+  // Landlord identity gate
+  verificationStatus IdStatus @default(UNVERIFIED) // UNVERIFIED|PENDING|VERIFIED|REJECTED
   verifiedAt         DateTime?
-  phoneVerifiedAt    DateTime? // optional: if you prefer to keep it only in LandlordProfile, you can remove this
-  emailVerifiedAt    DateTime? // separate from emailVerified if you want explicit “verification flow” timestamp
+  phoneVerifiedAt    DateTime?
   idCheckProvider    String?
   idCheckSessionId   String?
 
+  // Stripe Identity webhook fields (added)
+  identityStatus     String?   // "NOT_STARTED" | "PENDING" | "VERIFIED" | "REQUIRES_INPUT" | "CANCELED" | "PROCESSING"
+  idVerifiedAt       DateTime?
+
+  // Relations & timestamps
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   listings           Listing[]
   verificationTokens VerificationToken[]
-  landlordProfile    LandlordProfile? // 1:1 side
+  landlordProfile    LandlordProfile?
 
   conversationMemberships ConversationParticipant[] @relation("ConversationMembers")
   sentMessages            Message[]                 @relation("UserMessages")
@@ -108,6 +113,7 @@ model User {
   renterViewingRequests   ViewingRequest[] @relation("RenterViewingRequests")
   landlordViewingRequests ViewingRequest[] @relation("LandlordViewingRequests")
 }
+
 
 model VerificationToken {
   id        String   @id @default(cuid())
@@ -153,6 +159,7 @@ model LandlordProfile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
 
 model Listing {
   id          String   @id @default(cuid())
