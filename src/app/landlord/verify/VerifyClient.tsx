@@ -146,6 +146,7 @@ export default function VerifyClient({
 
   // Phone
   const [phone, setPhone] = React.useState<string>("");
+  const [normalizedPhone, setNormalizedPhone] = React.useState<string>(""); // store server-normalized E.164
   const [phoneStatus, setPhoneStatus] = React.useState<Status>(initialPhoneVerified ? "verified" : "not_started");
   const [otpSent, setOtpSent] = React.useState(false);
   const [resendIn, setResendIn] = React.useState(0);
@@ -246,8 +247,11 @@ export default function VerifyClient({
                         const parsed: unknown = await resp.json().catch(() => ({}));
                         const obj = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
                         const serverError = typeof obj.error === "string" ? obj.error : undefined;
+                        const to = typeof obj.to === "string" ? obj.to : "";
 
                         if (resp.ok) {
+                          setNormalizedPhone(to || phone); // keep server-normalized E.164 for confirm/resend
+                          setPhoneStatus("pending");
                           setOtpSent(true);
                           setResendIn(30);
                           setOtpMessage("Code sent via SMS.");
@@ -275,7 +279,7 @@ export default function VerifyClient({
                           const resp = await fetch("/api/verify/phone/confirm", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ phone, code }),
+                            body: JSON.stringify({ phone: normalizedPhone || phone, code }),
                           });
                           const parsed: unknown = await resp.json().catch(() => ({}));
                           const obj = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
@@ -303,11 +307,15 @@ export default function VerifyClient({
                               const resp = await fetch("/api/verify/phone/send", {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ phone }),
+                                body: JSON.stringify({ phone: normalizedPhone || phone }),
                               });
                               if (resp.ok) {
                                 setResendIn(30);
                                 setOtpMessage("We sent a new code.");
+                              } else {
+                                const j = (await resp.json().catch(() => ({}))) as Record<string, unknown>;
+                                const err = typeof j.error === "string" ? j.error : "Could not resend code.";
+                                setOtpMessage(err);
                               }
                             } catch {
                               setOtpMessage("Could not resend code.");
@@ -363,33 +371,32 @@ export default function VerifyClient({
                 )}
 
                 <div className="flex items-center gap-3">
-                  {/* Dev-only: we’ll wire Resend + JWT next */}
                   <Button
-  style={{ backgroundColor: HOMEIQ_GREEN }}
-  onClick={async () => {
-    try {
-      const resp = await fetch("/api/verify/email/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const parsed: unknown = await resp.json().catch(() => ({}));
-      const obj = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
-      const serverError = typeof obj.error === "string" ? obj.error : undefined;
+                    style={{ backgroundColor: HOMEIQ_GREEN }}
+                    onClick={async () => {
+                      try {
+                        const resp = await fetch("/api/verify/email/send", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ email }),
+                        });
+                        const parsed: unknown = await resp.json().catch(() => ({}));
+                        const obj = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+                        const serverError = typeof obj.error === "string" ? obj.error : undefined;
 
-      if (resp.ok) {
-        setEmailToast("Verification link sent. Check your inbox and spam folder.");
-      } else {
-        setEmailToast(serverError || "Could not send verification email.");
-      }
-    } catch {
-      setEmailToast("Unexpected error sending email.");
-    }
-  }}
-  disabled={emailStatus === "verified"}
->
-  Send link
-</Button>
+                        if (resp.ok) {
+                          setEmailToast("Verification link sent. Check your inbox and spam folder.");
+                        } else {
+                          setEmailToast(serverError || "Could not send verification email.");
+                        }
+                      } catch {
+                        setEmailToast("Unexpected error sending email.");
+                      }
+                    }}
+                    disabled={emailStatus === "verified"}
+                  >
+                    Send link
+                  </Button>
 
                   <Button variant="outline" onClick={() => setEmailStatus("verified")}>
                     I clicked the link (dev)
