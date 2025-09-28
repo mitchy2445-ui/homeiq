@@ -1,20 +1,13 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import {
-  ShieldCheck,
-  IdCard,
-  Phone as PhoneIcon,
-  Mail,
-  Lock,
-  X,
-  Info,
-} from "lucide-react";
+import { ShieldCheck, Phone as PhoneIcon, Mail, Lock } from "lucide-react";
 
 const HOMEIQ_GREEN = "#1A6E4E";
 
@@ -26,11 +19,12 @@ function statusTone(status: Status): { label: string; className: string } {
     case "verified":
       return { label: "Verified", className: "bg-emerald-100 text-emerald-800" };
     case "pending":
-      return { label: "Pending review", className: "bg-amber-100 text-amber-800" };
+      return { label: "Pending", className: "bg-amber-100 text-amber-800" };
     default:
       return { label: "Not started", className: "bg-gray-100 text-gray-700" };
   }
 }
+
 function maskEmail(email: string) {
   const [user, domain] = email.split("@");
   if (!user || !domain) return email;
@@ -43,13 +37,13 @@ function maskEmail(email: string) {
 function SectionHeader() {
   return (
     <div className="mb-6">
-      <div className="text-sm text-gray-500">Step 1 of 7</div>
+      <div className="text-sm text-gray-500">Step 1 of 6</div>
       <h1 className="mt-1 text-3xl font-semibold tracking-tight">Verify your identity</h1>
       <p className="mt-2 text-gray-600">
-        For a safe community, we verify every landlord’s identity. It takes 2–3 minutes.
+        For a safe community, we verify every landlord’s contact details. It takes 1–2 minutes.
       </p>
       <div className="mt-4">
-        <Progress value={14} className="h-2" />
+        <Progress value={16} className="h-2" />
       </div>
     </div>
   );
@@ -72,56 +66,11 @@ function TrustPanel() {
         </ul>
         <div className="mt-4 flex items-start gap-2 text-xs text-gray-500">
           <Lock className="h-4 w-4 shrink-0 mt-0.5" />
-          <p>Your documents are encrypted and never shared publicly.</p>
+          <p>Your contact info is private and never shared publicly.</p>
         </div>
         <Button variant="outline" className="mt-5 w-full">Contact support</Button>
       </CardContent>
     </Card>
-  );
-}
-
-/* -------------------------------- Dropzone -------------------------------- */
-function Dropzone({ onFiles }: { onFiles: (files: File[]) => void }) {
-  const [isOver, setIsOver] = React.useState(false);
-  const inputRef = React.useRef<HTMLInputElement>(null);
-
-  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsOver(false);
-    const files = Array.from(e.dataTransfer.files).slice(0, 2);
-    if (files.length) onFiles(files);
-  };
-  const onSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files ? Array.from(e.target.files).slice(0, 2) : [];
-    if (files.length) onFiles(files);
-  };
-
-  return (
-    <div
-      onDragOver={(e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setIsOver(true); }}
-      onDragLeave={() => setIsOver(false)}
-      onDrop={onDrop}
-      role="button"
-      tabIndex={0}
-      onClick={() => inputRef.current?.click()}
-      className={`flex h-36 w-full items-center justify-center rounded-xl border-2 border-dashed text-center transition ${
-        isOver ? "border-emerald-500 bg-emerald-50" : "border-gray-300"
-      }`}
-      aria-label="Upload ID"
-    >
-      <div className="px-6 text-sm text-gray-600">
-        <div className="font-medium">Drag & drop your ID (front & back) or click to upload</div>
-        <div className="mt-1 text-xs text-gray-500">JPG/PNG/PDF, max 10MB</div>
-      </div>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*,application/pdf"
-        multiple
-        className="hidden"
-        onChange={onSelect}
-      />
-    </div>
   );
 }
 
@@ -132,7 +81,7 @@ function OtpInput({
   ariaId,
 }: {
   length?: number;
-  onComplete: (code: string) => void;
+  onComplete: (code: string) => void | Promise<void>;
   ariaId: string;
 }) {
   const [values, setValues] = React.useState<string[]>(Array.from({ length }, () => ""));
@@ -174,7 +123,9 @@ function OtpInput({
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange(i, e.target.value)}
           onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => handleKeyDown(i, e)}
           onPaste={onPaste}
-          ref={(el: HTMLInputElement | null) => { inputs.current[i] = el; }}
+          ref={(el: HTMLInputElement | null) => {
+            inputs.current[i] = el;
+          }}
         />
       ))}
     </div>
@@ -191,24 +142,22 @@ export default function VerifyClient({
   initialPhoneVerified: boolean;
   initialEmailVerified: boolean;
 }) {
-  // ID state
-  const [idFiles, setIdFiles] = React.useState<File[]>([]);
-  const [idStatus, setIdStatus] = React.useState<Status>("not_started");
+  const router = useRouter();
 
-  // Phone state
+  // Phone
   const [phone, setPhone] = React.useState<string>("");
   const [phoneStatus, setPhoneStatus] = React.useState<Status>(initialPhoneVerified ? "verified" : "not_started");
   const [otpSent, setOtpSent] = React.useState(false);
   const [resendIn, setResendIn] = React.useState(0);
   const [otpMessage, setOtpMessage] = React.useState<string>("");
 
-  // Email state
+  // Email
   const [email, setEmail] = React.useState<string>(initialEmail);
   const [editingEmail, setEditingEmail] = React.useState(false);
   const [emailStatus, setEmailStatus] = React.useState<Status>(initialEmailVerified ? "verified" : "not_started");
   const [emailToast, setEmailToast] = React.useState<string>("");
 
-  const allVerified = idStatus === "verified" && phoneStatus === "verified" && emailStatus === "verified";
+  const allVerified = phoneStatus === "verified" && emailStatus === "verified";
 
   // resend timer
   React.useEffect(() => {
@@ -217,82 +166,36 @@ export default function VerifyClient({
     return () => clearInterval(t);
   }, [otpSent, resendIn]);
 
+  async function handleContinue() {
+    try {
+      const resp = await fetch("/api/verify/complete", { method: "POST" });
+      const parsed: unknown = await resp.json().catch(() => ({}));
+      const obj = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+      const ok = obj.ok === true || obj.ok === "true";
+      const next = typeof obj.next === "string" ? obj.next : "/landlord/new/basics";
+      if (resp.ok && ok) {
+        router.push(next);
+      } else {
+        const error = typeof obj.error === "string" ? obj.error : "Please complete phone and email verification.";
+        alert(error);
+      }
+    } catch {
+      alert("Unable to continue right now.");
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <div className="flex items-start justify-between">
         <SectionHeader />
-        <a href="#help" className="hidden md:inline text-sm text-emerald-700 hover:underline mt-1">Need help?</a>
+        <a href="#help" className="hidden md:inline text-sm text-emerald-700 hover:underline mt-1">
+          Need help?
+        </a>
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-        {/* Left column: 2 cols */}
+        {/* Left column */}
         <div className="md:col-span-2 space-y-5">
-          {/* Government ID */}
-          <Card className="rounded-2xl shadow-sm border">
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-full p-2" style={{ backgroundColor: "#eaf5f0", color: HOMEIQ_GREEN }}>
-                    <IdCard className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-3">
-                      <h3 className="font-medium">Government ID</h3>
-                      <Badge className={`rounded-full ${statusTone(idStatus).className}`}>
-                        {statusTone(idStatus).label}
-                      </Badge>
-                    </div>
-                    <p className="mt-1 text-sm text-gray-600">
-                      Upload front and back of your ID. We’ll review it shortly.
-                    </p>
-                  </div>
-                </div>
-                <a href="#acceptable-id" className="text-xs text-gray-500 hover:underline inline-flex items-center gap-1">
-                  <Info className="h-3.5 w-3.5" /> What’s an acceptable ID?
-                </a>
-              </div>
-
-              <div className="mt-4">
-                <Dropzone
-                  onFiles={(files) => {
-                    setIdFiles(files);
-                    setIdStatus("pending");
-                  }}
-                />
-                {idFiles.length > 0 && (
-                  <ul className="mt-3 space-y-2">
-                    {idFiles.map((f, i) => (
-                      <li key={i} className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2 text-sm">
-                        <span className="truncate max-w-[75%]">{f.name}</span>
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900"
-                          onClick={() => setIdFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                          aria-label={`Remove ${f.name}`}
-                        >
-                          <X className="h-4 w-4" /> Remove
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <div className="mt-4 flex items-center gap-3">
-                  <Button
-                    style={{ backgroundColor: HOMEIQ_GREEN }}
-                    onClick={() => (idFiles.length ? setIdStatus("pending") : null)}
-                    disabled={idFiles.length === 0}
-                  >
-                    Upload
-                  </Button>
-                  {/* Dev helper to simulate approval */}
-                  <Button variant="outline" onClick={() => setIdStatus("verified")}>
-                    Mark as verified (dev)
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Phone verification */}
           <Card className="rounded-2xl shadow-sm border">
             <CardContent className="p-5">
@@ -321,21 +224,39 @@ export default function VerifyClient({
                   <Input
                     id="phone"
                     inputMode="tel"
-                    placeholder="e.g., +1 204-555-1234"
+                    placeholder="e.g., +1 2045551234"
                     value={phone}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)}
                     disabled={phoneStatus === "verified"}
                   />
                   <Button
                     style={{ backgroundColor: HOMEIQ_GREEN }}
-                    onClick={() => {
+                    onClick={async () => {
                       setOtpMessage("");
                       if (!phone.trim()) {
                         setOtpMessage("Enter a valid phone number.");
                         return;
                       }
-                      setOtpSent(true);
-                      setResendIn(30);
+                      try {
+                        const resp = await fetch("/api/verify/phone/send", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ phone }),
+                        });
+                        const parsed: unknown = await resp.json().catch(() => ({}));
+                        const obj = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+                        const serverError = typeof obj.error === "string" ? obj.error : undefined;
+
+                        if (resp.ok) {
+                          setOtpSent(true);
+                          setResendIn(30);
+                          setOtpMessage("Code sent via SMS.");
+                        } else {
+                          setOtpMessage(serverError || "Failed to send code.");
+                        }
+                      } catch {
+                        setOtpMessage("Unexpected error sending code.");
+                      }
                     }}
                     disabled={phoneStatus === "verified"}
                   >
@@ -349,12 +270,25 @@ export default function VerifyClient({
                     </div>
                     <OtpInput
                       ariaId="otp-label"
-                      onComplete={(code) => {
-                        if (code === "000000") {
-                          setOtpMessage("That code looks like a test code. Try the one we sent.");
-                        } else {
-                          setPhoneStatus("verified");
-                          setOtpMessage("Phone verified successfully.");
+                      onComplete={async (code) => {
+                        try {
+                          const resp = await fetch("/api/verify/phone/confirm", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ phone, code }),
+                          });
+                          const parsed: unknown = await resp.json().catch(() => ({}));
+                          const obj = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+                          const serverError = typeof obj.error === "string" ? obj.error : undefined;
+
+                          if (resp.ok) {
+                            setPhoneStatus("verified");
+                            setOtpMessage("Phone verified successfully.");
+                          } else {
+                            setOtpMessage(serverError || "Incorrect code.");
+                          }
+                        } catch {
+                          setOtpMessage("Verification request failed.");
                         }
                       }}
                     />
@@ -363,10 +297,21 @@ export default function VerifyClient({
                       <button
                         type="button"
                         className="underline disabled:opacity-50"
-                        onClick={() => {
+                        onClick={async () => {
                           if (resendIn === 0) {
-                            setResendIn(30);
-                            setOtpMessage("We sent a new code.");
+                            try {
+                              const resp = await fetch("/api/verify/phone/send", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ phone }),
+                              });
+                              if (resp.ok) {
+                                setResendIn(30);
+                                setOtpMessage("We sent a new code.");
+                              }
+                            } catch {
+                              setOtpMessage("Could not resend code.");
+                            }
                           }
                         }}
                         disabled={resendIn > 0}
@@ -418,15 +363,34 @@ export default function VerifyClient({
                 )}
 
                 <div className="flex items-center gap-3">
+                  {/* Dev-only: we’ll wire Resend + JWT next */}
                   <Button
-                    style={{ backgroundColor: HOMEIQ_GREEN }}
-                    onClick={() => {
-                      setEmailToast("Verification link sent. Check your inbox and spam folder.");
-                    }}
-                    disabled={emailStatus === "verified"}
-                  >
-                    Send link
-                  </Button>
+  style={{ backgroundColor: HOMEIQ_GREEN }}
+  onClick={async () => {
+    try {
+      const resp = await fetch("/api/verify/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const parsed: unknown = await resp.json().catch(() => ({}));
+      const obj = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+      const serverError = typeof obj.error === "string" ? obj.error : undefined;
+
+      if (resp.ok) {
+        setEmailToast("Verification link sent. Check your inbox and spam folder.");
+      } else {
+        setEmailToast(serverError || "Could not send verification email.");
+      }
+    } catch {
+      setEmailToast("Unexpected error sending email.");
+    }
+  }}
+  disabled={emailStatus === "verified"}
+>
+  Send link
+</Button>
+
                   <Button variant="outline" onClick={() => setEmailStatus("verified")}>
                     I clicked the link (dev)
                   </Button>
@@ -457,9 +421,7 @@ export default function VerifyClient({
             className="rounded-full px-6"
             style={{ backgroundColor: HOMEIQ_GREEN }}
             disabled={!allVerified}
-            onClick={() => {
-              // TODO: wire to server action
-            }}
+            onClick={handleContinue}
           >
             Continue
           </Button>
