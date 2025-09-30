@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -77,30 +79,30 @@ enum ViewingStatus {
  * ---------------------------- Models ---------------------------
  */
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  name          String?
-  passwordHash  String?
-  role          Role     @default(USER)
+  id           String  @id @default(cuid())
+  email        String  @unique
+  name         String?
+  passwordHash String?
+  role         Role    @default(USER)
 
-  // Email verification (you’re using both in code, keep both for now)
-  emailVerified   DateTime?  // legacy check in auth/login route
-  emailVerifiedAt DateTime?  // used by verify page
+  // Email verification
+  emailVerified   DateTime? // legacy
+  emailVerifiedAt DateTime? // current
 
   // Landlord identity gate
-  verificationStatus IdStatus @default(UNVERIFIED) // UNVERIFIED|PENDING|VERIFIED|REJECTED
+  verificationStatus IdStatus  @default(UNVERIFIED)
   verifiedAt         DateTime?
   phoneVerifiedAt    DateTime?
   idCheckProvider    String?
   idCheckSessionId   String?
 
-  // Stripe Identity webhook fields (added)
-  identityStatus     String?   // "NOT_STARTED" | "PENDING" | "VERIFIED" | "REQUIRES_INPUT" | "CANCELED" | "PROCESSING"
-  idVerifiedAt       DateTime?
+  // Stripe Identity webhook fields
+  identityStatus String?
+  idVerifiedAt   DateTime?
 
   // Relations & timestamps
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   listings           Listing[]
   verificationTokens VerificationToken[]
@@ -113,7 +115,6 @@ model User {
   renterViewingRequests   ViewingRequest[] @relation("RenterViewingRequests")
   landlordViewingRequests ViewingRequest[] @relation("LandlordViewingRequests")
 }
-
 
 model VerificationToken {
   id        String   @id @default(cuid())
@@ -160,31 +161,39 @@ model LandlordProfile {
   updatedAt DateTime @updatedAt
 }
 
-
 model Listing {
-  id          String   @id @default(cuid())
-  title       String
-  city        String
-  price       Int // monthly price in cents
-  beds        Int
-  baths       Int
-  status      Status   @default(DRAFT)
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id String @id @default(cuid())
 
+  // Ownership
   landlordId String?
   landlord   User?   @relation(fields: [landlordId], references: [id])
 
-  // Media
+  // Core content
+  title       String
+  description String?
+  houseRules  String?
+
+  // Basics / Pricing
+  city  String
+  price Int // monthly price in cents
+  beds  Int
+  baths Int
+
+  // Status
+  status Status @default(DRAFT)
+
+  // Media (legacy)
   images   Json?
   videos   Json?
   videoUrl String?
 
+  // Photos (new, structured)
+  photos ListingPhoto[]
+
   // Property metadata & neighborhood/amenities
-  propertyType      String?
-  neighborhoodVibe  NeighborhoodVibe?
-  areaType          AreaType?
+  propertyType     String?
+  neighborhoodVibe NeighborhoodVibe?
+  areaType         AreaType?
 
   distanceBusMeters      Int?
   distanceGroceryMeters  Int?
@@ -206,13 +215,19 @@ model Listing {
   minLeaseMonths    Int?
   maxOccupants      Int?
   smokingAllowed    Boolean?
-  houseRules        String?
 
   depositCents Int?
 
-  // NEW — verification/map + structured insights for the details page
+  // Verification/map + structured insights for the details page
   locationVerified Boolean @default(false)
-  insights         Json?   // neighborhood insights block (transit, shops, vibe, etc.)
+
+  // Existing JSON blob
+  insights Json?
+
+  // Normalized insights fields (✅ no @db.Text on SQLite)
+  neighborhoodNotes String?
+  transit           String?
+  amenities         String?
 
   // Messaging back-relation
   conversations Conversation[] @relation("ListingConversations")
@@ -222,6 +237,25 @@ model Listing {
 
   // ViewingRequest back-relation
   viewingRequests ViewingRequest[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([landlordId])
+}
+
+model ListingPhoto {
+  id        String  @id @default(cuid())
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  url       String
+  alt       String?
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([listingId])
 }
 
 model Conversation {
