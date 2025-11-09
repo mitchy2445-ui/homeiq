@@ -218,6 +218,10 @@ model Listing {
 
   depositCents Int?
 
+  // 🆕 availability & targeting
+  availableFrom       DateTime?
+  preferredTenantType String?
+
   // Verification/map + structured insights for the details page
   locationVerified Boolean @default(false)
 
@@ -342,3 +346,4 @@ model ViewingRequest {
   @@index([landlordId, status, createdAt])
   @@index([renterId, createdAt])
 }
+  
