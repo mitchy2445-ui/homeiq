@@ -1,5 +1,3 @@
-// prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -26,9 +24,6 @@ enum Role {
   ADMIN
 }
 
-/**
- * NEW enums
- */
 enum NeighborhoodVibe {
   QUIET
   MODERATE
@@ -78,6 +73,7 @@ enum ViewingStatus {
 /**
  * ---------------------------- Models ---------------------------
  */
+
 model User {
   id           String  @id @default(cuid())
   email        String  @unique
@@ -85,22 +81,18 @@ model User {
   passwordHash String?
   role         Role    @default(USER)
 
-  // Email verification
-  emailVerified   DateTime? // legacy
-  emailVerifiedAt DateTime? // current
+  emailVerified   DateTime?
+  emailVerifiedAt DateTime?
 
-  // Landlord identity gate
   verificationStatus IdStatus  @default(UNVERIFIED)
   verifiedAt         DateTime?
   phoneVerifiedAt    DateTime?
   idCheckProvider    String?
   idCheckSessionId   String?
 
-  // Stripe Identity webhook fields
   identityStatus String?
   idVerifiedAt   DateTime?
 
-  // Relations & timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -126,13 +118,9 @@ model VerificationToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-/**
- * Landlord onboarding & verification
- */
 model LandlordProfile {
   id String @id @default(cuid())
 
-  // MUST be unique for a 1:1 relation
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -147,13 +135,11 @@ model LandlordProfile {
   country         String
   postal          String
 
-  // ID / KYC
   idStatus      IdStatus @default(UNVERIFIED)
   kycProvider   String?
   kycRef        String?
   addressDocUrl String?
 
-  // dev-mode OTP
   phoneOtpHash    String?
   phoneOtpExpires DateTime?
 
@@ -164,33 +150,33 @@ model LandlordProfile {
 model Listing {
   id String @id @default(cuid())
 
-  // Ownership
   landlordId String?
   landlord   User?   @relation(fields: [landlordId], references: [id])
 
-  // Core content
   title       String
   description String?
   houseRules  String?
 
-  // Basics / Pricing
-  city  String
-  price Int // monthly price in cents
+  // ---------- Basics ----------
+  street    String
+  city      String
+  province  String
+  postal    String
+
+  price Int
   beds  Int
   baths Int
 
-  // Status
   status Status @default(DRAFT)
 
-  // Media (legacy)
+  // ---------- Media ----------
   images   Json?
   videos   Json?
   videoUrl String?
 
-  // Photos (new, structured)
   photos ListingPhoto[]
 
-  // Property metadata & neighborhood/amenities
+  // ---------- Property metadata ----------
   propertyType     String?
   neighborhoodVibe NeighborhoodVibe?
   areaType         AreaType?
@@ -201,6 +187,12 @@ model Listing {
   distanceParkMeters     Int?
   distancePharmacyMeters Int?
   distanceGymMeters      Int?
+
+  // ---------- NEW NEIGHBORHOOD POI FIELDS ----------
+  distanceRestaurantsMeters Int?
+  distanceShoppingMeters    Int?
+  distanceUniversityMeters  Int?
+  distanceNightlifeMeters   Int?
 
   parkingType   ParkingType?
   petPolicy     PetPolicy?
@@ -218,28 +210,34 @@ model Listing {
 
   depositCents Int?
 
-  // 🆕 availability & targeting
   availableFrom       DateTime?
   preferredTenantType String?
 
-  // Verification/map + structured insights for the details page
+  // Summary fields
+  idealRenterSummary String?
+  petSummary         String?
+  parkingSummary     String?
+  laundrySummary     String?
+
+  // Listing details
+  noiseLevel             String?
+  naturalLight           String?
+  interiorNotes          String?
+  buildingAmenitiesNotes String?
+  rulesNotes             String?
+
   locationVerified Boolean @default(false)
 
-  // Existing JSON blob
   insights Json?
 
-  // Normalized insights fields (✅ no @db.Text on SQLite)
   neighborhoodNotes String?
   transit           String?
   amenities         String?
 
-  // Messaging back-relation
   conversations Conversation[] @relation("ListingConversations")
 
-  // Favorites back-relation
   favoritedBy Favorite[]
 
-  // ViewingRequest back-relation
   viewingRequests ViewingRequest[]
 
   createdAt DateTime @default(now())
@@ -316,6 +314,7 @@ model Favorite {
 /**
  * ----------------------- Viewing Requests ----------------------
  */
+
 model ViewingRequest {
   id         String @id @default(cuid())
   listingId  String
@@ -324,7 +323,6 @@ model ViewingRequest {
 
   note String?
 
-  // up to 3 proposed slots in UTC
   slot1Start DateTime?
   slot1End   DateTime?
   slot2Start DateTime?
@@ -346,4 +344,3 @@ model ViewingRequest {
   @@index([landlordId, status, createdAt])
   @@index([renterId, createdAt])
 }
-  
