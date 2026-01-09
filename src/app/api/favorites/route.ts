@@ -5,18 +5,28 @@ import { getSessionFromCookie } from "@/lib/auth";
 export const runtime = "nodejs";
 
 /**
- * GET – fetch user's favorites
+ * GET – fetch user's favorites (with listing + photos)
  */
 export async function GET() {
   const session = await getSessionFromCookie();
 
   if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Return empty array so UI doesn't crash
+    return NextResponse.json([], { status: 401 });
   }
 
   const favorites = await db.favorite.findMany({
     where: { userId: session.sub },
-    include: { listing: true },
+    include: {
+      listing: {
+        include: {
+          photos: {
+            orderBy: { sortOrder: "asc" },
+            take: 1, // only need first image for cards
+          },
+        },
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
 

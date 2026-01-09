@@ -1,3 +1,4 @@
+// src/app/landlord/new/description/page.tsx
 "use client";
 
 import * as React from "react";
@@ -16,8 +17,8 @@ export default function DescriptionPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Read listingId from the query param
-  const listingId = searchParams.get("listingId") ?? "";
+  // For consistency with the rest of the wizard, use ?id=
+  const listingId = searchParams.get("id") ?? "";
 
   const [form, setForm] = React.useState<DescriptionForm>({
     title: "",
@@ -25,10 +26,10 @@ export default function DescriptionPage() {
     houseRules: "",
   });
 
-  const [loading, setLoading] = React.useState<boolean>(false);
-  const [error, setError] = React.useState<string>("");
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState("");
 
-  // Safety net: if there's no listingId in the URL, auto-create a draft and fix the URL.
+  // Safety net: create a draft if URL lacks id
   React.useEffect(() => {
     (async () => {
       if (listingId) return;
@@ -37,23 +38,24 @@ export default function DescriptionPage() {
         if (!res.ok) return;
         const data: DraftResponse = await res.json();
         router.replace(
-          `/landlord/new/description?listingId=${encodeURIComponent(data.id)}`
+          `/landlord/new/description?id=${encodeURIComponent(data.id)}`
         );
       } catch {
-        // If creating a draft fails silently, user can still fill, but saving will warn.
+        /* ignore */
       }
     })();
   }, [listingId, router]);
 
-  // Optional: preload existing listing fields if an id exists
+  // Preload existing data
   React.useEffect(() => {
     let active = true;
     (async () => {
       if (!listingId) return;
       try {
-        const res = await fetch(`/api/listings/${encodeURIComponent(listingId)}`, {
-          cache: "no-store",
-        });
+        const res = await fetch(
+          `/api/listings/${encodeURIComponent(listingId)}`,
+          { cache: "no-store" }
+        );
         if (!res.ok) return;
         const data = (await res.json()) as Partial<DescriptionForm>;
         if (!active) return;
@@ -63,7 +65,7 @@ export default function DescriptionPage() {
           houseRules: data.houseRules ?? s.houseRules,
         }));
       } catch {
-        // ignore preload issues
+        /* ignore */
       }
     })();
     return () => {
@@ -71,22 +73,12 @@ export default function DescriptionPage() {
     };
   }, [listingId]);
 
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm((s) => ({ ...s, title: e.target.value }));
-  };
-  const handleDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setForm((s) => ({ ...s, description: e.target.value }));
-  };
-  const handleRulesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setForm((s) => ({ ...s, houseRules: e.target.value }));
-  };
-
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
 
     if (!listingId) {
-      setError("Missing listingId. Please try again.");
+      setError("Missing listing id. Please try again.");
       return;
     }
     if (!form.title.trim() || !form.description.trim()) {
@@ -104,7 +96,6 @@ export default function DescriptionPage() {
           body: JSON.stringify(form satisfies DescriptionForm),
         }
       );
-
       if (!res.ok) {
         const text = await res.text();
         throw new Error(text || "Failed to save description.");
@@ -112,12 +103,13 @@ export default function DescriptionPage() {
       const data: SaveResponse = await res.json();
       if (!data.ok) throw new Error(data.message || "Failed to save.");
 
-      // NEXT step in your wizard — update if your next page differs
-      router.push(
-        `/landlord/new/insights?listingId=${encodeURIComponent(data.id)}`
-      );
+      // 👉 We’re no longer using the wizard step system here.
+      // Send the user to the next real step in your current flow.
+      // Adjust this path if your next page is different.
+      router.push(`/landlord/new/photos?id=${encodeURIComponent(data.id)}`);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Something went wrong.";
+      const msg =
+        err instanceof Error ? err.message : "Something went wrong.";
       setError(msg);
     } finally {
       setLoading(false);
@@ -125,13 +117,8 @@ export default function DescriptionPage() {
   };
 
   const goBack = () => {
-    if (listingId) {
-      router.push(
-        `/landlord/new/basics?listingId=${encodeURIComponent(listingId)}`
-      );
-    } else {
-      router.push(`/landlord/new/basics`);
-    }
+    // Back to basics page (no wizard type needed)
+    router.push("/landlord/new/basics");
   };
 
   const descMax = 1000;
@@ -142,13 +129,15 @@ export default function DescriptionPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold">Describe your place</h1>
         <p className="text-sm text-gray-500">
-          A clear title, detailed description, and house rules help renters know what to expect.
+          A clear title, detailed description, and house rules help renters
+          know what to expect.
         </p>
       </div>
 
       {!listingId && (
         <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          No <code>listingId</code> found in the URL. Your changes won’t be saved.
+          No <code>id</code> found in the URL. Your changes won&apos;t be
+          saved.
         </div>
       )}
 
@@ -167,24 +156,33 @@ export default function DescriptionPage() {
             id="title"
             name="title"
             value={form.title}
-            onChange={handleTitleChange}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setForm((s) => ({ ...s, title: e.target.value }))
+            }
             placeholder="Cozy 2-bedroom near downtown"
             className="w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-emerald-500"
             maxLength={100}
             required
           />
-          <p className="mt-1 text-xs text-gray-500">{form.title.length}/100</p>
+          <p className="mt-1 text-xs text-gray-500">
+            {form.title.length}/100
+          </p>
         </div>
 
         <div>
-          <label htmlFor="description" className="mb-2 block text-sm font-medium">
+          <label
+            htmlFor="description"
+            className="mb-2 block text-sm font-medium"
+          >
             Description
           </label>
           <textarea
             id="description"
             name="description"
             value={form.description}
-            onChange={handleDescriptionChange}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+              setForm((s) => ({ ...s, description: e.target.value }))
+            }
             placeholder="Share the layout, light, nearby transit, and what makes your place special…"
             className="min-h-[160px] w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-emerald-500"
             maxLength={descMax}
@@ -209,12 +207,16 @@ export default function DescriptionPage() {
             id="rules"
             name="houseRules"
             value={form.houseRules}
-            onChange={handleRulesChange}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+              setForm((s) => ({ ...s, houseRules: e.target.value }))
+            }
             placeholder="e.g., No parties, quiet hours after 10pm, no smoking indoors…"
             className="min-h-[120px] w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-emerald-500"
             maxLength={600}
           />
-          <p className="mt-1 text-xs text-gray-500">{form.houseRules.length}/600</p>
+          <p className="mt-1 text-xs text-gray-500">
+            {form.houseRules.length}/600
+          </p>
         </div>
 
         <div className="mt-8 flex items-center justify-between">

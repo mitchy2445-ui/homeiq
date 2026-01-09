@@ -6,7 +6,8 @@ function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {}
+// Use a type alias instead of an empty interface extending the supertype
+export type InputProps = React.ComponentProps<"input">;
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className, ...props }, ref) => (

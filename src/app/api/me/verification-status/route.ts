@@ -1,17 +1,31 @@
+// src/app/api/me/verification-status/route.ts
+export const runtime = "nodejs";
+
 import { NextResponse } from "next/server";
 import { prisma as db } from "@/lib/db";
-import { getCurrentUserId } from "@/lib/currentUser";
+import { getSessionFromCookie } from "@/lib/auth";
+
+type VerificationStatus = "UNAUTHENTICATED" | "UNVERIFIED" | "PENDING" | "VERIFIED" | "REJECTED";
 
 export async function GET() {
-  const userId = await getCurrentUserId();
-  if (!userId) {
-    return NextResponse.json({ status: "UNAUTHENTICATED" });
+  const sess = await getSessionFromCookie();
+
+  let status: VerificationStatus = "UNAUTHENTICATED";
+  if (sess?.sub) {
+    const u = await db.user.findUnique({
+      where: { id: sess.sub },
+      select: { verificationStatus: true },
+    });
+    status = (u?.verificationStatus ?? "UNVERIFIED") as VerificationStatus;
   }
 
-  const u = await db.user.findUnique({
-    where: { id: userId },
-    select: { verificationStatus: true },
+  return new NextResponse(JSON.stringify({ status }), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
   });
-
-  return NextResponse.json({ status: u?.verificationStatus ?? "UNVERIFIED" });
 }

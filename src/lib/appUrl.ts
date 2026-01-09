@@ -1,3 +1,4 @@
+// src/lib/appUrl.ts
 export function appUrl() {
   const base =
     process.env.NEXT_PUBLIC_APP_URL ??
@@ -7,7 +8,8 @@ export function appUrl() {
 }
 
 export function buildVerifyLink(token: string) {
-  const url = new URL("/api/auth/verify", appUrl());
+  // ✅ remove /api
+  const url = new URL("/auth/verify", appUrl());
   url.searchParams.set("token", token);
   return url.toString();
 }

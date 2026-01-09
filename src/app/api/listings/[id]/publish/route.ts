@@ -1,42 +1,68 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma as db } from "@/lib/db";
+import { getCurrentUserId } from "@/lib/currentUser";
 
-export async function POST(
-  _req: NextRequest,
-  ctx: { params: Promise<{ id: string }> }
-) {
+type ApiParams = { id: string };
+
+export async function POST(_req: Request, ctx: { params: Promise<ApiParams> }) {
   try {
     const { id } = await ctx.params;
 
-    if (!id) return NextResponse.json({ message: "Missing id" }, { status: 400 });
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    }
 
-    const listing = await db.listing.findUnique({
+    // Load the listing and the data we need to validate publishing.
+    const l = await db.listing.findUnique({
       where: { id },
-      select: { id: true, title: true, description: true, city: true, price: true, beds: true, baths: true },
+      select: {
+        id: true,
+        landlordId: true,
+        title: true,
+        city: true,
+        beds: true,
+        baths: true,
+        price: true,          // cents
+        images: true,         // JSON array (your uploader saves here)
+        photos: { select: { id: true } }, // relation (if you also use it)
+        status: true,
+      },
     });
-    if (!listing) return NextResponse.json({ message: "Not found" }, { status: 404 });
 
-    const ok =
-      !!listing.title &&
-      !!listing.description &&
-      !!listing.city &&
-      typeof listing.price === "number" && listing.price > 0 &&
-      typeof listing.beds === "number" &&
-      typeof listing.baths === "number";
+    if (!l) return NextResponse.json({ message: "Not found" }, { status: 404 });
+    if (l.landlordId !== userId) {
+      return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+    }
 
-    if (!ok) {
+    // Validate required fields
+    const errors: string[] = [];
+    if (!l.title?.trim()) errors.push("Title is required.");
+    if (!l.city?.trim()) errors.push("City is required.");
+    if (!l.beds || l.beds <= 0) errors.push("Beds must be greater than 0.");
+    if (!l.baths || l.baths <= 0) errors.push("Baths must be greater than 0.");
+    if (!l.price || l.price <= 0) errors.push("Monthly price must be greater than 0.");
+
+    const hasJsonImages = Array.isArray(l.images) && l.images.length > 0;
+    const hasRelPhotos = Array.isArray(l.photos) && l.photos.length > 0;
+    if (!hasJsonImages && !hasRelPhotos) errors.push("At least one photo is required.");
+
+    if (errors.length) {
       return NextResponse.json(
-        { message: "Listing is incomplete. Please fill Basics and Pricing." },
+        { message: "Cannot publish.", errors },
         { status: 400 }
       );
     }
 
-    // If you have a status enum, update it here instead of a no-op write:
-    // await db.listing.update({ where: { id }, data: { status: "PUBLISHED" } });
+    const updated = await db.listing.update({
+      where: { id },
+      data: { status: "PENDING" }, // or "APPROVED" if you auto-approve
+      select: { id: true, status: true },
+    });
 
-    await db.listing.update({ where: { id }, data: { title: listing.title } }); // no-op update
-    return NextResponse.json({ ok: true, id });
-  } catch {
+    return NextResponse.json({ ok: true, id: updated.id, status: updated.status });
+  } catch (e) {
+    console.error("Publish error:", e);
     return NextResponse.json({ message: "Server error" }, { status: 500 });
   }
 }

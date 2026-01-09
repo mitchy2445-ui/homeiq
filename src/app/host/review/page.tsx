@@ -1,220 +1,319 @@
-// src/app/host/review/page.tsx
-import { requireSession } from "@/lib/auth";
-import { prisma as db } from "@/lib/db";
-import HostStepper from "@/components/HostStepper";
-import { redirect } from "next/navigation";
-import type { $Enums } from "@prisma/client";
+// src/app/landlord/new/review/page.tsx
+"use client";
+
+import * as React from "react";
 import Image from "next/image";
+import { useRouter, useSearchParams } from "next/navigation";
+import { prevPath } from "@/lib/listingWizard";
+import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+// ---------- TYPES MATCHING GET /api/host/listings/[id] ----------
+type ReviewPhoto = {
+  id: string;
+  url: string;
+  alt: string | null;
+  sortOrder: number;
+};
 
-export default async function ReviewPage() {
-  const s = await requireSession("/host/review");
+type ReviewUtilities = {
+  included: string[];
+  notIncluded: string[];
+};
 
-  const listing = await db.listing.findFirst({
-    where: { landlordId: s.sub },
-    orderBy: { updatedAt: "desc" },
-    select: {
-      id: true,
-      status: true,
-      title: true,
-      city: true,
-      price: true, // cents
-      beds: true,
-      baths: true,
-      description: true,
-      images: true, // Json string[]
-      videoUrl: true,
-      parkingType: true,
-      petPolicy: true,
-      laundry: true,
-      utilitiesIncluded: true, // Json string[]
-      furnished: true,
-      heating: true,
-      cooling: true,
-      neighborhoodVibe: true,
-      areaType: true,
-    },
-  });
+type ReviewListing = {
+  id: string;
+  title: string;
+  street: string;
+  aptUnit: string | null;
+  city: string;
+  province: string;
+  postal: string;
+  price: number;
+  beds: number;
+  baths: number;
+  propertyType: string | null;
+  availableFrom: string | null;
 
-  if (!listing) redirect("/host/basics");
-  const li = listing; // non-null from here on
+  furnished: boolean | null;
 
-  /* ---------------- helpers ---------------- */
-  function jsonStrArr(v: unknown): string[] {
-    return Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]) : [];
-  }
-  function centsToDollars(cents?: number | null): string {
-    if (typeof cents !== "number") return "";
-    return `$${(cents / 100).toFixed(0)}`;
-  }
-  function issues(l: typeof li): string[] {
-    const errs: string[] = [];
-    if (!l.title?.trim()) errs.push("Title is required.");
-    if (!l.city?.trim()) errs.push("City is required.");
-    if (typeof l.price !== "number" || l.price <= 0) errs.push("Monthly price is required.");
-    if (typeof l.beds !== "number") errs.push("Beds is required.");
-    if (typeof l.baths !== "number") errs.push("Baths is required.");
-    if (jsonStrArr(l.images).length === 0) errs.push("At least one photo is required.");
-    return errs;
-  }
-  const problems = issues(li);
+  // summaries
+  idealRenterSummary: string | null;
+  petSummary: string | null;
+  parkingSummary: string | null;
+  laundrySummary: string | null;
 
-  /* -------------- actions -------------- */
-  async function submitForReview(formData: FormData): Promise<void> {
-    "use server";
-    const ss = await requireSession("/host/review");
-    const id = String(formData.get("listingId") || "");
-    if (!id) throw new Error("Missing listing id.");
+  // utilities
+  utilitiesIncluded: ReviewUtilities | null;
 
-    // Re-validate on server
-    const l = await db.listing.findFirst({
-      where: { id, landlordId: ss.sub },
-      select: {
-        id: true,
-        title: true,
-        city: true,
-        price: true,
-        beds: true,
-        baths: true,
-        images: true,
-      },
+  // description
+  description: string;
+
+  // neighborhood insights
+  neighborhoodSafety: string | null;
+  neighborhoodWalkability: string | null;
+  neighborhoodCommunity: string | null;
+  neighborhoodNoise: string | null;
+  neighborhoodHighlights: string | null;
+  neighborhoodTransitNotes: string | null;
+
+  photos: ReviewPhoto[];
+};
+
+export default function ReviewPage() {
+  const router = useRouter();
+  const params = useSearchParams();
+
+  const id = params.get("id");
+
+  const [data, setData] = React.useState<ReviewListing | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState("");
+
+  // ---------------------- LOAD LISTING ----------------------
+  React.useEffect(() => {
+    if (!id) return;
+
+    async function load() {
+      const res = await fetch(`/api/host/listings/${id}`, {
+        method: "GET",
+        credentials: "include",
+      });
+
+      const body = await res.json();
+
+      if (!res.ok) {
+        setError(body.error || "Failed to load listing.");
+      } else {
+        setData(body as ReviewListing);
+      }
+      setLoading(false);
+    }
+
+    load();
+  }, [id]);
+
+  // ---------------------- PUBLISH LISTING ----------------------
+  async function onPublish() {
+    setSaving(true);
+
+    const res = await fetch(`/api/host/listings/${id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "PENDING" }),
     });
-    if (!l) throw new Error("Listing not found.");
 
-    const imgs = jsonStrArr(l.images);
-    const errs: string[] = [];
-    if (!l.title?.trim()) errs.push("Title");
-    if (!l.city?.trim()) errs.push("City");
-    if (typeof l.price !== "number" || l.price <= 0) errs.push("Price");
-    if (typeof l.beds !== "number") errs.push("Beds");
-    if (typeof l.baths !== "number") errs.push("Baths");
-    if (imgs.length === 0) errs.push("Photos");
-    if (errs.length) throw new Error(`Please complete: ${errs.join(", ")}.`);
+    const body = await res.json();
+    setSaving(false);
 
-    await db.listing.updateMany({
-      where: { id, landlordId: ss.sub },
-      data: { status: "PENDING" as $Enums.Status },
-    });
+    if (!res.ok) return setError(body.error || "Unable to publish.");
 
-    redirect("/host/review");
+    router.replace("/landlord/listings");
   }
 
-  /* -------------- UI -------------- */
-  const photos = jsonStrArr(li.images);
-  const cover = photos[0] ?? "/placeholder.svg";
+  if (loading)
+    return (
+      <main className="p-6">
+        <p className="text-gray-600">Loading…</p>
+      </main>
+    );
 
+  if (error || !data)
+    return (
+      <main className="p-6">
+        <p className="text-red-600">{error || "Error loading listing."}</p>
+      </main>
+    );
+
+  const listing = data;
+
+  // ------------------------------------------------------------
+  // RENDER PAGE
+  // ------------------------------------------------------------
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <HostStepper current="review" />
-      <h1 className="mt-6 text-2xl md:text-3xl font-semibold">Review & Publish</h1>
-      <p className="text-gray-600 mt-2">Double-check details, then submit for review.</p>
-
-      {/* status pill */}
-      <div className="mt-4">
-        <span
-          className={[
-            "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs",
-            li.status === "APPROVED"
-              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-              : li.status === "PENDING"
-              ? "bg-amber-50 text-amber-700 border-amber-200"
-              : li.status === "REJECTED"
-              ? "bg-rose-50 text-rose-700 border-rose-200"
-              : "bg-gray-50 text-gray-700 border-gray-200",
-          ].join(" ")}
-        >
-          Status: {li.status}
-        </span>
+    <main className="mx-auto max-w-4xl p-6 space-y-8">
+      {/* HEADER */}
+      <div>
+        <h1 className="text-2xl font-semibold mb-1">Review your listing</h1>
+        <p className="text-gray-600 text-sm">
+          Make sure everything looks correct before publishing.
+        </p>
       </div>
 
-      {/* summary card */}
-      <section className="mt-6 rounded-2xl border overflow-hidden">
-        <div className="relative w-full aspect-[16/9] bg-gray-100">
-          <Image src={cover} alt="Cover image" fill className="object-cover" />
-        </div>
-        <div className="p-4 space-y-2">
-          <h2 className="text-xl font-semibold">{li.title || "Untitled listing"}</h2>
-          <p className="text-gray-600">
-            {li.city || "City not set"} • {li.beds} beds • {li.baths} baths •{" "}
-            {centsToDollars(li.price) || "Price not set"}/mo
-          </p>
-          {li.description && (
-            <p className="text-sm text-gray-700 leading-6 mt-2">{li.description}</p>
-          )}
+      <Progress value={100} className="w-full" />
 
-          <div className="mt-4 grid sm:grid-cols-2 gap-3 text-sm">
-            <InfoRow label="Neighborhood vibe" value={li.neighborhoodVibe ?? "—"} />
-            <InfoRow label="Area type" value={li.areaType ?? "—"} />
-            <InfoRow label="Parking" value={li.parkingType ?? "—"} />
-            <InfoRow label="Pets" value={li.petPolicy ?? "—"} />
-            <InfoRow label="Laundry" value={li.laundry ?? "—"} />
-            <InfoRow label="Furnished" value={li.furnished ? "Yes" : "No"} />
-            <InfoRow label="Heating" value={li.heating ?? "—"} />
-            <InfoRow label="Cooling" value={li.cooling ?? "—"} />
-            <InfoRow
-              label="Utilities included"
-              value={jsonStrArr(li.utilitiesIncluded).join(", ") || "—"}
-            />
-            <InfoRow label="Video" value={li.videoUrl ? "Included" : "—"} />
-          </div>
+      {/* ---------------------- PHOTOS ---------------------- */}
+      <section className="space-y-3">
+        <h2 className="text-xl font-semibold">Photos</h2>
+
+        {listing.photos.length === 0 && (
+          <p className="text-gray-600 text-sm">No photos uploaded.</p>
+        )}
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          {listing.photos.map((p) => (
+            <div
+              key={p.id}
+              className="relative w-full h-32 rounded overflow-hidden"
+            >
+              <Image
+                src={p.url}
+                alt={p.alt ?? ""}
+                fill
+                className="object-cover"
+              />
+            </div>
+          ))}
         </div>
       </section>
 
-      {/* problems */}
-      {problems.length > 0 && (
-        <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-          <p className="font-medium text-amber-800">Incomplete items</p>
-          <ul className="mt-2 list-disc list-inside text-amber-800 space-y-1">
-            {problems.map((p) => (
-              <li key={p}>{p}</li>
-            ))}
-          </ul>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <a className="btn" href="/host/basics">Edit Basics</a>
-            <a className="btn" href="/host/media">Edit Media</a>
-            <a className="btn" href="/host/neighborhood">Edit Neighborhood</a>
-            <a className="btn" href="/host/pricing">Edit Pricing & Policies</a>
-          </div>
+      {/* ---------------------- BASIC INFO ---------------------- */}
+      <section className="space-y-1">
+        <h2 className="text-xl font-semibold">Basic Information</h2>
+
+        <div className="text-sm text-gray-700 space-y-1">
+          <p>
+            <strong>Title:</strong> {listing.title}
+          </p>
+          <p>
+            <strong>Address:</strong> {listing.street}
+            {listing.aptUnit ? `, #${listing.aptUnit}` : ""},{" "}
+            {listing.city}, {listing.province}, {listing.postal}
+          </p>
+          <p>
+            <strong>Price:</strong> ${(listing.price / 100).toFixed(2)} /
+            month
+          </p>
+          <p>
+            <strong>Beds:</strong> {listing.beds}
+          </p>
+          <p>
+            <strong>Baths:</strong> {listing.baths}
+          </p>
+          <p>
+            <strong>Property Type:</strong>{" "}
+            {listing.propertyType || "Not set"}
+          </p>
+          <p>
+            <strong>Available From:</strong>{" "}
+            {listing.availableFrom
+              ? new Date(listing.availableFrom).toLocaleDateString()
+              : "Not specified"}
+          </p>
         </div>
-      )}
+      </section>
 
-      {/* submit */}
-      <form action={submitForReview} className="mt-6">
-        <input type="hidden" name="listingId" value={li.id} />
-        <button
-          type="submit"
-          disabled={problems.length > 0 || li.status === "PENDING" || li.status === "APPROVED"}
-          className="rounded-xl bg-brand-600 text-white px-5 py-3 font-medium hover:opacity-95 disabled:opacity-50"
+      {/* ---------------------- FURNISHING ---------------------- */}
+      <section className="space-y-1">
+        <h2 className="text-xl font-semibold">Furnishing</h2>
+        <p className="text-sm text-gray-700">
+          {listing.furnished === true
+            ? "This unit is furnished."
+            : listing.furnished === false
+            ? "This unit is unfurnished."
+            : "Not specified."}
+        </p>
+      </section>
+
+      {/* ---------------------- SUMMARIES ---------------------- */}
+      <section className="space-y-2">
+        <h2 className="text-xl font-semibold">Summaries</h2>
+
+        <div className="text-sm text-gray-700 space-y-1">
+          <p>
+            <strong>Ideal Renter: </strong>
+            {listing.idealRenterSummary || "Not specified"}
+          </p>
+          <p>
+            <strong>Pet Policy: </strong>
+            {listing.petSummary || "Not specified"}
+          </p>
+          <p>
+            <strong>Parking: </strong>
+            {listing.parkingSummary || "Not specified"}
+          </p>
+          <p>
+            <strong>Laundry: </strong>
+            {listing.laundrySummary || "Not specified"}
+          </p>
+        </div>
+      </section>
+
+      {/* ---------------------- UTILITIES ---------------------- */}
+      <section className="space-y-2">
+        <h2 className="text-xl font-semibold">Utilities</h2>
+
+        <div className="text-sm text-gray-700 space-y-1">
+          <p>
+            <strong>Included: </strong>
+            {listing.utilitiesIncluded?.included?.length
+              ? listing.utilitiesIncluded.included.join(", ")
+              : "None"}
+          </p>
+          <p>
+            <strong>Not Included: </strong>
+            {listing.utilitiesIncluded?.notIncluded?.length
+              ? listing.utilitiesIncluded.notIncluded.join(", ")
+              : "None"}
+          </p>
+        </div>
+      </section>
+
+      {/* ---------------------- DESCRIPTION ---------------------- */}
+      <section>
+        <h2 className="text-xl font-semibold">Description</h2>
+        <p className="text-sm text-gray-700 whitespace-pre-wrap">
+          {listing.description}
+        </p>
+      </section>
+
+      {/* ---------------------- NEIGHBORHOOD ---------------------- */}
+      <section className="space-y-1">
+        <h2 className="text-xl font-semibold">Neighborhood Insights</h2>
+
+        <div className="text-sm text-gray-700 space-y-1">
+          <p>
+            <strong>Safety:</strong>{" "}
+            {listing.neighborhoodSafety || "Not specified"}
+          </p>
+          <p>
+            <strong>Walkability:</strong>{" "}
+            {listing.neighborhoodWalkability || "Not specified"}
+          </p>
+          <p>
+            <strong>Community:</strong>{" "}
+            {listing.neighborhoodCommunity || "Not specified"}
+          </p>
+          <p>
+            <strong>Noise:</strong>{" "}
+            {listing.neighborhoodNoise || "Not specified"}
+          </p>
+          <p>
+            <strong>Highlights:</strong>{" "}
+            {listing.neighborhoodHighlights || "Not specified"}
+          </p>
+          <p>
+            <strong>Transit Notes:</strong>{" "}
+            {listing.neighborhoodTransitNotes || "Not specified"}
+          </p>
+        </div>
+      </section>
+
+      {/* ---------------------- NAVIGATION ---------------------- */}
+      <div className="flex justify-between pt-4">
+        <Button
+          variant="outline"
+          onClick={() => router.push(prevPath("review", listing.id))}
         >
-          {li.status === "PENDING" ? "Submitted" : "Submit for review"}
-        </button>
-      </form>
+          Back
+        </Button>
 
-      <style jsx>{`
-        .btn {
-          display: inline-flex;
-          align-items: center;
-          border-radius: 0.75rem;
-          border: 1px solid rgb(209 213 219);
-          padding: 0.5rem 0.75rem;
-          font-size: 0.875rem;
-          color: rgb(17 24 39);
-        }
-        .btn:hover {
-          background: rgb(249 250 251);
-        }
-      `}</style>
+        <Button onClick={onPublish} disabled={saving}>
+          {saving ? "Publishing..." : "Publish Listing"}
+        </Button>
+      </div>
     </main>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: string | number | null }) {
-  return (
-    <div className="flex items-center justify-between rounded-lg border px-3 py-2">
-      <span className="text-gray-500">{label}</span>
-      <span className="font-medium">{value ?? "—"}</span>
-    </div>
   );
 }

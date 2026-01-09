@@ -1,18 +1,26 @@
+import "server-only";
+import { prisma as db } from "@/lib/db";
 import { getSessionFromCookie } from "@/lib/auth";
 
-/**
- * Normalizes user id regardless of your session shape.
- * Supports: { user: { id } } | { userId } | { id } | null/undefined
- */
+/** Return the current user id from the signed cookie, or null. */
 export async function getCurrentUserId(): Promise<string | null> {
-  const session: any = await getSessionFromCookie();
+  const sess = await getSessionFromCookie();
+  return sess?.sub ?? null;
+}
 
-  if (!session) return null;
+/** Return a minimal user object for headers/guards, or null. */
+export async function getCurrentUser() {
+  const id = await getCurrentUserId();
+  if (!id) return null;
 
-  // Common shapes:
-  if (session.user?.id) return session.user.id as string;
-  if (session.userId) return session.userId as string;
-  if (typeof session.id === "string") return session.id;
-
-  return null;
+  return db.user.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      emailVerifiedAt: true,
+      verificationStatus: true,
+    },
+  });
 }

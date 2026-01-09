@@ -1,154 +1,150 @@
 "use client";
 
-import { useRef, useState } from "react";
+import * as React from "react";
 
 type Props = {
   listingId: string;
-  initialUrl?: string;
-  cloudName: string;
-  uploadPreset: string;
-  maxDurationSec: number; // 300 = 5 mins
+  cloudName: string;                 // NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+  uploadPreset: string;              // NEXT_PUBLIC_CLOUDINARY_VIDEO_PRESET (unsigned + video/auto)
+  maxDurationSec?: number;           // default 300 (5 min)
+  maxSizeMB?: number;                // default 100 (Cloudinary free plan guideline)
 };
 
 export default function VideoUploader({
   listingId,
-  initialUrl = "",
   cloudName,
   uploadPreset,
-  maxDurationSec,
+  maxDurationSec = 300,
+  maxSizeMB = 100,
 }: Props) {
-  const [currentUrl, setCurrentUrl] = useState(initialUrl);
-  const [error, setError] = useState<string>("");
-  const [busy, setBusy] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string>("");
+  const [videoUrl, setVideoUrl] = React.useState<string>("");
 
   async function handlePick() {
-    inputRef.current?.click();
-  }
-
-  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     setError("");
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "video/mp4,video/webm,video/quicktime"; // mp4/webm/mov
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
 
-    // Basic type check
-    const okTypes = ["video/mp4", "video/quicktime", "video/webm"];
-    if (!okTypes.includes(file.type)) {
-      setError("Please choose an MP4, MOV or WEBM video.");
-      return;
-    }
+      // 1) Duration check (<= 5 min by default)
+      const objectUrl = URL.createObjectURL(file);
+      try {
+        const dur = await getVideoDuration(objectUrl);
+        if (!isFinite(dur) || dur > maxDurationSec) {
+          setError(`Video is longer than ${Math.floor(maxDurationSec / 60)} minutes. Please trim and try again.`);
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+      } catch {
+        // If duration probing fails, we still attempt upload.
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
 
-    // Measure duration before upload (load into a hidden <video>)
-    const duration = await getVideoDuration(file).catch(() => -1);
-    if (duration <= 0) {
-      setError("Could not read video duration. Please try another file.");
-      return;
-    }
-    if (duration > maxDurationSec) {
-      setError(`Video is too long (${Math.round(duration)}s). Max is ${maxDurationSec}s.`);
-      return;
-    }
-
-    // Upload to Cloudinary (video resource)
-    setBusy(true);
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      form.append("upload_preset", uploadPreset);
-
-      const endpoint = `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`;
-      const res = await fetch(endpoint, { method: "POST", body: form });
-      const json = await res.json();
-
-      if (!res.ok || !json?.secure_url) {
-        setError(json?.error?.message || "Upload failed. Please try again.");
+      // 2) Size check (friendly guardrail)
+      const maxBytes = maxSizeMB * 1024 * 1024;
+      if (file.size > maxBytes) {
+        setError(`File is larger than ${maxSizeMB}MB. Please compress/trim and try again.`);
         return;
       }
 
-      const videoUrl: string = json.secure_url as string;
+      setBusy(true);
+      try {
+        // 3) Upload to Cloudinary VIDEO endpoint
+        const form = new FormData();
+        form.append("file", file);
+        form.append("upload_preset", uploadPreset);
 
-      // Save on our backend (assumes PATCH /api/host/listings/[id] supports { videoUrl })
-      const save = await fetch(`/api/host/listings/${listingId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoUrl }),
-      });
+        const endpoint = `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`;
+        const res = await fetch(endpoint, { method: "POST", body: form });
 
-      if (!save.ok) {
-        setError("Uploaded, but failed to save video URL. Please retry.");
-        return;
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          console.error("Cloudinary upload error:", res.status, t);
+          if (res.status === 400 || res.status === 401) {
+            setError(
+              "Upload failed. Verify your Cloudinary cloud name and that the unsigned VIDEO preset exists and allows mp4/mov/webm."
+            );
+          } else {
+            setError("Network error during upload. Please try again.");
+          }
+          return;
+        }
+
+        const data = await res.json();
+        const url: string = data.secure_url || data.url;
+        if (!url) {
+          setError("Upload succeeded but no URL returned by Cloudinary.");
+          return;
+        }
+
+        setVideoUrl(url);
+
+        // 4) Persist to listing (PATCH your API)
+        const save = await fetch(`/api/host/listings/${encodeURIComponent(listingId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoUrl: url }),
+        });
+
+        if (!save.ok) {
+          const t = await save.text().catch(() => "");
+          console.error("Failed to save videoUrl:", t);
+          setError("Uploaded, but failed to save to your listing. Please try again.");
+          return;
+        }
+      } catch (e) {
+        console.error(e);
+        setError("Network error during upload. Please try again.");
+      } finally {
+        setBusy(false);
       }
-
-      setCurrentUrl(videoUrl);
-    } catch (err) {
-      setError("Network error during upload. Please try again.");
-    } finally {
-      setBusy(false);
-      if (inputRef.current) inputRef.current.value = "";
-    }
+    };
+    input.click();
   }
 
   return (
-    <div className="rounded-2xl border p-4">
+    <div className="rounded-xl border p-4">
       {error && (
         <div className="mb-4 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
         </div>
       )}
 
-      <div className="flex items-center gap-3">
+      {videoUrl ? (
+        <div className="space-y-3">
+          <video controls className="w-full rounded-lg" src={videoUrl} />
+          <div className="text-sm text-gray-600 break-all">
+            Saved video:&nbsp;
+            <a className="underline" href={videoUrl} target="_blank" rel="noreferrer">
+              {videoUrl}
+            </a>
+          </div>
+        </div>
+      ) : (
         <button
           type="button"
           onClick={handlePick}
-          className="rounded-full border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
           disabled={busy}
+          className="rounded-full border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
         >
-          {busy ? "Uploading…" : currentUrl ? "Replace video" : "Upload video"}
+          {busy ? "Uploading…" : "Upload video"}
         </button>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="video/mp4,video/quicktime,video/webm"
-          className="hidden"
-          onChange={onFileChange}
-        />
-        {currentUrl && (
-          <span className="text-sm text-gray-600">Saved ✓</span>
-        )}
-      </div>
-
-      {currentUrl && (
-        <div className="mt-4">
-          <video
-            src={currentUrl}
-            controls
-            className="w-full max-w-xl rounded-xl border"
-          />
-        </div>
       )}
     </div>
   );
 }
 
-function getVideoDuration(file: File): Promise<number> {
+function getVideoDuration(src: string): Promise<number> {
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const video = document.createElement("video");
-    const cleanup = () => {
-      URL.revokeObjectURL(url);
-      video.removeAttribute("src");
-      video.load();
-    };
-    video.preload = "metadata";
-    video.onloadedmetadata = () => {
-      const d = video.duration;
-      cleanup();
-      resolve(d);
-    };
-    video.onerror = () => {
-      cleanup();
-      reject(new Error("metadata error"));
-    };
-    video.src = url;
+    const v = document.createElement("video");
+    v.preload = "metadata";
+    v.onloadedmetadata = () => resolve(v.duration || 0);
+    v.onerror = reject;
+    v.src = src;
   });
 }

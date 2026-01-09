@@ -12,24 +12,38 @@ type Msg = {
 export default function MessageList({
   messages,
   me,
+  otherLastReadAt,
 }: {
   messages: Msg[];
   me: string;
+  otherLastReadAt?: Date | null;
 }) {
   const endRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-scroll on load + when messages change
+  // Auto-scroll on load + new messages
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
+
+  // ✅ Find the LAST message sent by ME
+  const lastMyMessage = [...messages]
+    .reverse()
+    .find((m) => m.senderId === me);
 
   return (
     <ul className="space-y-3">
       {messages.map((m, i) => {
         const mine = m.senderId === me;
         const prev = messages[i - 1];
-        const showTime =
-          !prev || prev.senderId !== m.senderId;
+        const showTime = !prev || prev.senderId !== m.senderId;
+
+        const isLastOutgoing =
+          mine && lastMyMessage?.id === m.id;
+
+        const seen =
+          isLastOutgoing &&
+          otherLastReadAt &&
+          otherLastReadAt >= m.createdAt;
 
         return (
           <li
@@ -54,6 +68,12 @@ export default function MessageList({
                   }`}
                 >
                   {m.createdAt.toLocaleString()}
+                </div>
+              )}
+
+              {seen && (
+                <div className="mt-0.5 text-[11px] text-gray-400 text-right">
+                  Seen
                 </div>
               )}
             </div>

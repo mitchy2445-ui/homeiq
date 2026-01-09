@@ -12,13 +12,15 @@ export async function GET(req: Request) {
     }
 
     const now = new Date();
-    await db.user.update({
-      where: { id: vt.userId },
-      data: {
-        emailVerified: now,
-        emailVerifiedAt: now,
-      },
-    });
+    // src/app/auth/verify/route.ts
+await db.user.update({
+  where: { id: vt.userId },
+  data: {
+    emailVerifiedAt: new Date(),   // ✅ current field used in your schema
+    emailVerified:   new Date(),   // (optional) keep legacy in sync
+  },
+});
+
     await db.verificationToken.delete({ where: { id: vt.id } });
 
     const base = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";

@@ -8,13 +8,22 @@ export const runtime = "nodejs";
 
 export default async function PhotosStepPage({
   searchParams,
-}: { searchParams: { id?: string } }) {
+}: {
+  // ✅ Next 15: searchParams is a Promise
+  searchParams: Promise<{ id?: string }>;
+}) {
+  // Await params
+  const sp = await searchParams;
+  const id = (sp?.id || "").trim();
+
+  // Require session
   const s = await getSessionFromCookie();
   if (!s) redirect("/auth/login?next=/landlord/new/photos");
 
-  const id = (searchParams?.id || "").trim();
+  // Must have listing id from previous step
   if (!id) redirect("/landlord/new/basics");
 
+  // Gate: verified email + verified landlord (or admin)
   const me = await db.user.findUnique({
     where: { id: s.sub },
     select: { role: true, verificationStatus: true, emailVerifiedAt: true },
@@ -24,15 +33,17 @@ export default async function PhotosStepPage({
   const emailVerified = Boolean(me?.emailVerifiedAt);
   const isVerifiedLandlord = me?.verificationStatus === "VERIFIED";
 
-  if (!emailVerified) redirect(`/auth/login?next=/landlord/new/photos?id=${encodeURIComponent(id)}`);
+  if (!emailVerified) {
+    redirect(`/auth/login?next=/landlord/new/photos?id=${encodeURIComponent(id)}`);
+  }
   if (!isVerifiedLandlord && !isAdmin) redirect("/landlord/verify");
 
+  // Pull listing + current photos
   const listing = await db.listing.findUnique({
     where: { id },
     select: {
       id: true,
       landlordId: true,
-      status: true,
       title: true,
       photos: {
         orderBy: { sortOrder: "asc" },
@@ -44,6 +55,23 @@ export default async function PhotosStepPage({
   if (!listing) redirect("/landlord/new/basics");
   if (!isAdmin && listing.landlordId !== s.sub) redirect("/");
 
+  // Read Cloudinary public env (must exist in .env.local)
+  const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ?? "";
+  const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET ?? "";
+
+  // Friendly config message if missing
+  if (!cloudName || !uploadPreset) {
+    return (
+      <main className="mx-auto max-w-4xl p-6">
+        <h1 className="text-2xl font-semibold mb-2">Photos</h1>
+        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+          Missing Cloudinary config. Add <code>NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME</code> and{" "}
+          <code>NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET</code> to <code>.env.local</code> and restart the dev server.
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto max-w-4xl p-6">
       <h1 className="text-2xl font-semibold mb-2">Photos</h1>
@@ -54,8 +82,8 @@ export default async function PhotosStepPage({
       <PhotoUploader
         listingId={listing.id}
         initialPhotos={listing.photos}
-        cloudName={process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ?? ""}
-        uploadPreset={process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET ?? ""}
+        cloudName={cloudName}
+        uploadPreset={uploadPreset}
         maxCount={30}
         minRecommended={5}
       />

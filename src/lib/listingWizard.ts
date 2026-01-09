@@ -1,52 +1,68 @@
+// src/lib/listingWizard.ts
+
+// The 6 steps of the landlord listing wizard, in order.
 export type WizardStep =
   | "basics"
-  | "neighborhood"   // your “Neighborhood Insights” page
-  | "description"
+  | "details"
   | "photos"
-  | "pricing"
-  | "review";        // final check/publish
+  | "video"
+  | "neighborhood"
+  | "review";
 
-// 👇 Set the order you want here:
 export const WIZARD_ORDER: WizardStep[] = [
   "basics",
-  "neighborhood",
-  "description",
+  "details",
   "photos",
-  "pricing",
+  "video",
+  "neighborhood",
   "review",
 ];
 
-// 👇 Map logical step names to your actual route segments
-const ROUTE_SEGMENT: Record<WizardStep, string> = {
-  basics: "basics",
-  neighborhood: "insights", // folder is /landlord/new/insights
-  description: "description",
-  photos: "photos",
-  pricing: "pricing",
-  review: "review",
-};
+const BASE = "/landlord/new";
 
-export function pathFor(step: WizardStep, id: string) {
-  const seg = ROUTE_SEGMENT[step];
-  return `/landlord/new/${seg}?listingId=${encodeURIComponent(id)}`;
+/**
+ * Build the URL for a given step.
+ * All steps after basics expect ?id=<listingId> in the URL.
+ */
+export function pathFor(step: WizardStep, listingId?: string) {
+  const q = listingId ? `?id=${encodeURIComponent(listingId)}` : "";
+
+  switch (step) {
+    case "basics":
+      // basics can create the listing, so it normally doesn't need an id
+      return `${BASE}/basics`;
+
+    case "details":
+      return `${BASE}/details${q}`;
+
+    case "photos":
+      return `${BASE}/photos${q}`;
+
+    case "video":
+      return `${BASE}/video${q}`;
+
+    case "neighborhood":
+      return `${BASE}/neighborhood${q}`;
+
+    case "review":
+      return `${BASE}/review${q}`;
+  }
 }
 
-export function nextStep(step: WizardStep): WizardStep | null {
-  const i = WIZARD_ORDER.indexOf(step);
-  return i >= 0 && i < WIZARD_ORDER.length - 1 ? WIZARD_ORDER[i + 1] : null;
+/**
+ * Next step in the wizard.
+ */
+export function nextPath(current: WizardStep, listingId: string) {
+  const i = WIZARD_ORDER.indexOf(current);
+  const next = WIZARD_ORDER[Math.min(i + 1, WIZARD_ORDER.length - 1)];
+  return pathFor(next, listingId);
 }
 
-export function prevStep(step: WizardStep): WizardStep | null {
-  const i = WIZARD_ORDER.indexOf(step);
-  return i > 0 ? WIZARD_ORDER[i - 1] : null;
-}
-
-export function nextPath(step: WizardStep, id: string) {
-  const ns = nextStep(step);
-  return ns ? pathFor(ns, id) : pathFor("review", id);
-}
-
-export function prevPath(step: WizardStep, id: string) {
-  const ps = prevStep(step);
-  return ps ? pathFor(ps, id) : pathFor(step, id);
+/**
+ * Previous step in the wizard.
+ */
+export function prevPath(current: WizardStep, listingId: string) {
+  const i = WIZARD_ORDER.indexOf(current);
+  const prev = WIZARD_ORDER[Math.max(i - 1, 0)];
+  return pathFor(prev, listingId);
 }

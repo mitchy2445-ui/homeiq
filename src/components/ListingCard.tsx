@@ -1,81 +1,218 @@
-// src/components/ListingCard.tsx
-import React from "react";
-import Link from "next/link";
-import Image from "next/image";
+"use client";
 
-export type ListingCardProps = {
-  id: string | number;
+import Link from "next/link";
+import { useState, useRef, useEffect } from "react";
+import { Heart } from "lucide-react";
+import type { $Enums } from "@prisma/client";
+
+/* ---------------------------------------------
+ * Types
+ * --------------------------------------------*/
+
+export type ListingCardData = {
+  id: string;
   title: string;
-  city?: string | null;
-  priceCents: number; // price per month in cents
-  beds?: number | null;
-  baths?: number | null;
-  images?: string[] | null; // array of image URLs
+  city: string;
+  imageUrl?: string;
+  images?: string[];
+  priceCents: number;
+  beds: number;
+  baths: number;
+  status?: $Enums.Status;
 };
 
-function formatCurrencyFromCents(cents: number) {
-  return (cents / 100).toLocaleString("en-CA", {
-    style: "currency",
-    currency: "CAD",
-    maximumFractionDigits: 0,
-  });
-}
+export type ListingCardProps =
+  | {
+      listing: ListingCardData;
+      hrefBase?: string;
+    }
+  | (Partial<ListingCardData> & { hrefBase?: string });
 
-export default function ListingCard({
-  id,
-  title,
-  city,
-  priceCents,
-  beds,
-  baths,
-  images,
-}: ListingCardProps) {
-  const img = images && images.length > 0 ? images[0] : "/placeholder.jpg"; // ensure you have public/placeholder.jpg
+/* ---------------------------------------------
+ * Component
+ * --------------------------------------------*/
 
+export default function ListingCard(props: ListingCardProps) {
+  /* ✅ Hooks FIRST */
+  const [index, setIndex] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const startX = useRef<number | null>(null);
+
+  /* ---------------------------------------------
+   * Normalize props
+   * --------------------------------------------*/
+  const listing =
+    "listing" in props ? props.listing : (props as ListingCardData);
+
+  const id = listing?.id;
+
+  /* ---------------------------------------------
+   * Load favorite state
+   * --------------------------------------------*/
+  useEffect(() => {
+    if (!id) return;
+
+    let mounted = true;
+
+    fetch("/api/favorites", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows: { listingId: string }[]) => {
+        if (!mounted) return;
+        setIsFavorite(rows.some((r) => r.listingId === id));
+      })
+      .catch(() => {});
+
+    return () => {
+      mounted = false;
+    };
+  }, [id]);
+
+  /* ---------------------------------------------
+   * Skeleton
+   * --------------------------------------------*/
+  if (!listing?.id) {
+    return (
+      <div className="w-[260px] rounded-2xl border bg-white p-3">
+        <div className="aspect-[4/3] rounded-xl bg-gray-200 animate-pulse" />
+        <div className="mt-3 h-4 w-2/3 rounded bg-gray-200 animate-pulse" />
+        <div className="mt-2 h-3 w-1/2 rounded bg-gray-200 animate-pulse" />
+      </div>
+    );
+  }
+
+  /* ---------------------------------------------
+   * Data
+   * --------------------------------------------*/
+  const {
+    title = "Untitled listing",
+    city = "",
+    imageUrl,
+    images = imageUrl ? [imageUrl] : [],
+    priceCents = 0,
+    beds = 0,
+    baths = 0,
+    status,
+  } = listing;
+
+  const href = `${props.hrefBase ?? "/listing"}/${id}`;
+  const price = Math.round(priceCents / 100);
+  const hasMultiple = images.length > 1;
+
+  /* ---------------------------------------------
+   * Favorite toggle
+   * --------------------------------------------*/
+  const toggleFavorite = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const next = !isFavorite;
+    setIsFavorite(next); // optimistic UI
+
+    await fetch("/api/favorites", {
+      method: next ? "POST" : "DELETE",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ listingId: id }),
+    });
+  };
+
+  /* ---------------------------------------------
+   * Carousel helpers
+   * --------------------------------------------*/
+  const next = () =>
+    hasMultiple && setIndex((i) => (i + 1) % images.length);
+
+  const prev = () =>
+    hasMultiple && setIndex((i) => (i - 1 + images.length) % images.length);
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    startX.current = e.touches[0].clientX;
+  };
+
+  const onTouchEnd = (e: React.TouchEvent) => {
+    if (startX.current === null) return;
+    const diff = startX.current - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 40) diff > 0 ? next() : prev();
+    startX.current = null;
+  };
+
+  /* ---------------------------------------------
+   * Render
+   * --------------------------------------------*/
   return (
     <Link
-      href={`/listing/${id}`}
-      className="group block w-[76vw] sm:w-[52vw] md:w-[36vw] lg:w-[28vw] xl:w-[22vw] shrink-0 snap-start"
-      prefetch
+      href={href}
+      data-card
+      className="
+        group block w-[260px] overflow-hidden rounded-2xl border bg-white
+        transition-all duration-200
+        hover:-translate-y-0.5
+        hover:shadow-xl
+        hover:border-emerald-700
+        hover:ring-1 hover:ring-emerald-700
+      "
     >
-      <div className="overflow-hidden rounded-2xl shadow-sm transition-all duration-200 hover:shadow-xl">
-        <div className="relative aspect-[4/3] w-full overflow-hidden bg-gray-100">
-          <Image
-            src={img}
+      {/* Image */}
+      <div
+        className="relative aspect-[4/3] overflow-hidden bg-gray-100"
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {images.length > 0 ? (
+          <img
+            src={images[index]}
             alt={title}
-            fill
-            sizes="(max-width: 640px) 76vw, (max-width: 768px) 52vw, (max-width: 1024px) 36vw, (max-width: 1280px) 28vw, 22vw"
-            className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-            priority={false}
+            loading="lazy"
+            onLoad={() => setLoaded(true)}
+            className={`h-full w-full object-cover transition-opacity duration-300 ${
+              loaded ? "opacity-100" : "opacity-0"
+            }`}
           />
+        ) : (
+          <div className="grid h-full w-full place-items-center text-sm text-gray-400">
+            No photo
+          </div>
+        )}
+
+        {/* ❤️ Favorite */}
+        <button
+          onClick={toggleFavorite}
+          aria-label="Toggle favorite"
+          className="
+            absolute right-2 top-2 rounded-full bg-white/90 p-1.5 shadow
+            opacity-0 transition group-hover:opacity-100
+          "
+        >
+          <Heart
+            className={`h-4 w-4 ${
+              isFavorite
+                ? "fill-emerald-700 text-emerald-700"
+                : "text-gray-600 hover:text-emerald-700"
+            }`}
+          />
+        </button>
+
+        {/* Badge */}
+        {status === "APPROVED" && (
+          <span className="absolute left-2 top-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-medium shadow">
+            Guest favorite
+          </span>
+        )}
+      </div>
+
+      {/* Info */}
+      <div className="p-3">
+        <div className="flex items-baseline justify-between gap-2">
+          <h3 className="truncate font-medium">{title}</h3>
+          <div className="text-sm text-gray-700">
+            ${price.toLocaleString()}/mo
+          </div>
         </div>
-        <div className="flex items-start justify-between gap-3 p-3">
-          <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold text-gray-900">
-              {title}
-            </h3>
-            {city ? (
-              <p className="truncate text-xs text-gray-500">{city}</p>
-            ) : null}
-            <p className="mt-1 text-sm text-gray-800">
-              <span className="font-semibold">
-                {formatCurrencyFromCents(priceCents)}
-              </span>
-              <span className="text-gray-500"> / month</span>
-            </p>
-          </div>
-          <div className="shrink-0 text-right text-xs text-gray-600">
-            {typeof beds === "number" && beds > 0 ? (
-              <p>
-                {beds} bed{beds > 1 ? "s" : ""}
-              </p>
-            ) : null}
-            {typeof baths === "number" && baths > 0 ? (
-              <p>
-                {baths} bath{baths > 1 ? "s" : ""}
-              </p>
-            ) : null}
-          </div>
+
+        <div className="mt-1 truncate text-sm text-gray-600">
+          {city} • {beds} bed • {baths} bath
         </div>
       </div>
     </Link>

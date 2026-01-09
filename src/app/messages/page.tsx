@@ -1,4 +1,3 @@
-// src/app/messages/page.tsx
 import Link from "next/link";
 import { requireSession } from "@/lib/auth";
 import { prisma as db } from "@/lib/db";
@@ -9,7 +8,6 @@ export const dynamic = "force-dynamic";
 export default async function MessagesPage() {
   const s = await requireSession("/messages");
 
-  // Fetch conversations the user belongs to, newest first
   const convos = await db.conversation.findMany({
     where: { participants: { some: { userId: s.sub } } },
     orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
@@ -19,9 +17,12 @@ export default async function MessagesPage() {
       messages: {
         orderBy: { createdAt: "desc" },
         take: 1,
-        select: { body: true, createdAt: true, senderId: true },
+        select: { body: true, createdAt: true },
       },
-      participants: { where: { userId: s.sub }, select: { lastReadAt: true } },
+      participants: {
+        where: { userId: s.sub },
+        select: { lastReadAt: true },
+      },
     },
   });
 
@@ -30,7 +31,12 @@ export default async function MessagesPage() {
       <h1 className="text-2xl font-semibold">Messages</h1>
 
       {!convos.length ? (
-        <p className="mt-6 text-gray-600">No conversations yet.</p>
+        <div className="mt-16 text-center text-gray-600">
+          <p className="text-lg font-medium">No messages yet</p>
+          <p className="mt-2 text-sm">
+            When you contact a host, your conversations will appear here.
+          </p>
+        </div>
       ) : (
         <ul className="mt-6 divide-y rounded-2xl border bg-white">
           {convos.map((c) => {
@@ -39,25 +45,31 @@ export default async function MessagesPage() {
             const lastRead = c.participants[0]?.lastReadAt ?? null;
             const unread = lastAt && (!lastRead || lastAt > lastRead);
             const title = c.listing?.title ?? "Conversation";
+
             return (
-              <li key={c.id} className="p-4 hover:bg-gray-50">
-                <Link href={`/messages/${c.id}`} className="flex items-start gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-3">
-                      <h2 className="truncate font-medium">{title}</h2>
-                      {unread && (
-                        <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-medium text-white">
-                          Unread
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-1 truncate text-sm text-gray-600">
-                      {last ? preview(last.body, 120) : "No messages yet."}
-                    </p>
-                    {lastAt ? (
-                      <p className="mt-1 text-xs text-gray-500">{timeAgo(lastAt)}</p>
-                    ) : null}
+              <li key={c.id}>
+                <Link
+                  href={`/messages/${c.id}`}
+                  className="block p-4 hover:bg-gray-50 transition"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="truncate font-medium">{title}</h2>
+                    {unread && (
+                      <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-medium text-white">
+                        New
+                      </span>
+                    )}
                   </div>
+
+                  <p className="mt-1 truncate text-sm text-gray-600">
+                    {last ? preview(last.body, 120) : "No messages yet."}
+                  </p>
+
+                  {lastAt && (
+                    <p className="mt-1 text-xs text-gray-400">
+                      {timeAgo(lastAt)}
+                    </p>
+                  )}
                 </Link>
               </li>
             );
@@ -68,7 +80,7 @@ export default async function MessagesPage() {
   );
 }
 
-/* ---------- small helpers ---------- */
+/* ---------- helpers ---------- */
 
 function preview(text: string, max = 100) {
   const s = text.replace(/\s+/g, " ").trim();

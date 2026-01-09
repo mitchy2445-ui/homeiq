@@ -71,7 +71,7 @@ enum ViewingStatus {
 }
 
 /**
- * ---------------------------- Models ---------------------------
+ * ---------------------------- Models ----------------------------
  */
 
 model User {
@@ -100,9 +100,11 @@ model User {
   verificationTokens VerificationToken[]
   landlordProfile    LandlordProfile?
 
+  // ✅ FIXED: named relation matches ConversationParticipant
   conversationMemberships ConversationParticipant[] @relation("ConversationMembers")
-  sentMessages            Message[]                 @relation("UserMessages")
-  favorites               Favorite[]
+
+  sentMessages  Message[]  @relation("UserMessages")
+  favorites     Favorite[]
 
   renterViewingRequests   ViewingRequest[] @relation("RenterViewingRequests")
   landlordViewingRequests ViewingRequest[] @relation("LandlordViewingRequests")
@@ -148,8 +150,7 @@ model LandlordProfile {
 }
 
 model Listing {
-  id String @id @default(cuid())
-
+  id         String  @id @default(cuid())
   landlordId String?
   landlord   User?   @relation(fields: [landlordId], references: [id])
 
@@ -157,26 +158,23 @@ model Listing {
   description String?
   houseRules  String?
 
-  // ---------- Basics ----------
-  street    String
-  city      String
-  province  String
-  postal    String
+  street   String
+  aptUnit  String?
+  city     String
+  province String
+  postal   String
+  country  String?
 
-  price Int
-  beds  Int
+  price  Int
+  beds   Int
   baths Int
-
   status Status @default(DRAFT)
 
-  // ---------- Media ----------
   images   Json?
-  videos   Json?
+  videos  Json?
   videoUrl String?
+  photos   ListingPhoto[]
 
-  photos ListingPhoto[]
-
-  // ---------- Property metadata ----------
   propertyType     String?
   neighborhoodVibe NeighborhoodVibe?
   areaType         AreaType?
@@ -187,12 +185,6 @@ model Listing {
   distanceParkMeters     Int?
   distancePharmacyMeters Int?
   distanceGymMeters      Int?
-
-  // ---------- NEW NEIGHBORHOOD POI FIELDS ----------
-  distanceRestaurantsMeters Int?
-  distanceShoppingMeters    Int?
-  distanceUniversityMeters  Int?
-  distanceNightlifeMeters   Int?
 
   parkingType   ParkingType?
   petPolicy     PetPolicy?
@@ -209,41 +201,29 @@ model Listing {
   smokingAllowed    Boolean?
 
   depositCents Int?
+  availableFrom DateTime?
 
-  availableFrom       DateTime?
-  preferredTenantType String?
-
-  // Summary fields
   idealRenterSummary String?
   petSummary         String?
   parkingSummary     String?
   laundrySummary     String?
 
-  // Listing details
   noiseLevel             String?
   naturalLight           String?
   interiorNotes          String?
   buildingAmenitiesNotes String?
   rulesNotes             String?
 
-  locationVerified Boolean @default(false)
-
-  insights Json?
-
   neighborhoodNotes String?
   transit           String?
   amenities         String?
 
-  conversations Conversation[] @relation("ListingConversations")
-
-  favoritedBy Favorite[]
-
+  conversations   Conversation[] @relation("ListingConversations")
+  favoritedBy     Favorite[]
   viewingRequests ViewingRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@index([landlordId])
 }
 
 model ListingPhoto {
@@ -253,38 +233,39 @@ model ListingPhoto {
 
   url       String
   alt       String?
-  sortOrder Int     @default(0)
+  sortOrder Int @default(0)
 
   createdAt DateTime @default(now())
-
-  @@index([listingId])
 }
 
 model Conversation {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   listingId     String?
-  listing       Listing?  @relation("ListingConversations", fields: [listingId], references: [id], onDelete: SetNull)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  listing       Listing? @relation("ListingConversations", fields: [listingId], references: [id], onDelete: SetNull)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
   lastMessageAt DateTime?
 
   participants ConversationParticipant[]
   messages     Message[]
-
-  @@index([lastMessageAt])
 }
 
 model ConversationParticipant {
   conversationId String
   userId         String
-  joinedAt       DateTime  @default(now())
   lastReadAt     DateTime?
+  isTyping       Boolean @default(false)
 
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  user         User         @relation("ConversationMembers", fields: [userId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  // ✅ FIXED: relation name matches User model
+  user User @relation(
+    "ConversationMembers",
+    fields: [userId],
+    references: [id]
+  )
 
   @@id([conversationId, userId])
-  @@index([userId])
 }
 
 model Message {
@@ -311,10 +292,6 @@ model Favorite {
   @@id([userId, listingId])
 }
 
-/**
- * ----------------------- Viewing Requests ----------------------
- */
-
 model ViewingRequest {
   id         String @id @default(cuid())
   listingId  String
@@ -340,7 +317,4 @@ model ViewingRequest {
   listing  Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
   renter   User    @relation("RenterViewingRequests", fields: [renterId], references: [id], onDelete: Cascade)
   landlord User    @relation("LandlordViewingRequests", fields: [landlordId], references: [id], onDelete: Cascade)
-
-  @@index([landlordId, status, createdAt])
-  @@index([renterId, createdAt])
 }

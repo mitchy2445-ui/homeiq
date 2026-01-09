@@ -29,8 +29,15 @@ export default async function HostListingsPage() {
   });
 
   /* ---------- actions ---------- */
+
+  // Wrapper: discard { ok: boolean } so <form action> accepts it
+  async function submitListingVoid(formData: FormData): Promise<void> {
+    "use server";
+    await submitListing(formData);
+  }
+
   // Keep local unpublish for convenience: APPROVED/PENDING -> DRAFT
-  async function unpublish(formData: FormData) {
+  async function unpublish(formData: FormData): Promise<void> {
     "use server";
     const ss = await requireSession("/host/listings");
     const id = String(formData.get("id") || "");
@@ -82,22 +89,12 @@ export default async function HostListingsPage() {
             const imgs = Array.isArray(l.images) ? (l.images as string[]) : [];
             const cover = imgs[0] ?? "/placeholder.svg";
             const price =
-              typeof l.price === "number"
-                ? `$${(l.price / 100).toFixed(0)}/mo`
-                : "—";
+              typeof l.price === "number" ? `$${(l.price / 100).toFixed(0)}/mo` : "—";
             return (
-              <li
-                key={l.id}
-                className="rounded-2xl border bg-white overflow-hidden"
-              >
+              <li key={l.id} className="rounded-2xl border bg-white overflow-hidden">
                 <Link href={`/listing/${l.id}`} className="block">
                   <div className="relative aspect-[4/3]">
-                    <Image
-                      src={cover}
-                      alt={l.title}
-                      fill
-                      className="object-cover"
-                    />
+                    <Image src={cover} alt={l.title} fill className="object-cover" />
                   </div>
                 </Link>
                 <div className="p-4">
@@ -122,7 +119,7 @@ export default async function HostListingsPage() {
 
                     {/* Submit for review: DRAFT/REJECTED -> PENDING */}
                     {(l.status === "DRAFT" || l.status === "REJECTED") && (
-                      <form action={submitListing}>
+                      <form action={submitListingVoid}>
                         <input type="hidden" name="id" value={l.id} />
                         <button className="rounded-xl bg-emerald-600 px-3 py-1.5 text-sm text-white hover:opacity-95">
                           Submit for review

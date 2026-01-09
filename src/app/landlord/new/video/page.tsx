@@ -74,12 +74,11 @@ export default async function VideoStepPage({
       </p>
 
       <VideoUploader
-        listingId={listing.id}
-        initialUrl={listing.videoUrl ?? ""}
-        cloudName={cloudName}
-        uploadPreset={uploadPreset}
-        maxDurationSec={300}
-      />
+  listingId={listing.id}
+  cloudName={process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ?? ""}
+  uploadPreset={process.env.NEXT_PUBLIC_CLOUDINARY_VIDEO_PRESET ?? ""}
+/>
+
 
       <div className="mt-8 flex items-center gap-3">
         <a

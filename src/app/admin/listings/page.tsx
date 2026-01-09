@@ -1,192 +1,310 @@
 // src/app/admin/listings/page.tsx
-import { prisma as db } from "@/lib/db";
-import { requireSession } from "@/lib/auth";
-import { redirect } from "next/navigation";
-import { approveListing, rejectListing } from "@/app/actions/listings";
-import type { Prisma, Status } from "@prisma/client"; // types
+import { notFound } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import Image from "next/image";
+import Link from "next/link";
 
+import { prisma as db } from "@/lib/db";
+import { getSessionFromCookie } from "@/lib/auth";
+import type { Prisma } from "@prisma/client";
+
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default async function AdminListingsPage({
-  searchParams,
-}: {
-  searchParams?: { status?: string; page?: string };
-}) {
-  const s = await requireSession("/admin/listings");
-  if (s.role !== "ADMIN") redirect("/");
+/* ----------------------------------------------------------------------------
+ * Helpers
+ * --------------------------------------------------------------------------*/
 
-  const statusParam = (searchParams?.status ?? "PENDING").toUpperCase();
-  const allowed: Status[] = ["DRAFT", "PENDING", "APPROVED", "REJECTED"];
-  const filterStatus: Status = allowed.includes(statusParam as Status)
-    ? (statusParam as Status)
-    : "PENDING";
+// Authorization: allow ONLY admins (role === "ADMIN")
+function canModerate(opts: { role?: string | null; email?: string | null }) {
+  return opts.role === "ADMIN";
+}
 
-  const page = Math.max(parseInt(searchParams?.page ?? "1", 10) || 1, 1);
-  const pageSize = 15;
+// JSON -> string[] (defensive against historical data)
+function jsonToStringArray(v: Prisma.JsonValue | null | undefined): string[] {
+  if (!v) return [];
+  if (Array.isArray(v) && v.every((x) => typeof x === "string")) return v as string[];
+  return [];
+}
 
-  const where: Prisma.ListingWhereInput = { status: filterStatus };
+// First image URL or undefined
+function firstImageUrl(listing: { images?: Prisma.JsonValue | null }): string | undefined {
+  const arr = jsonToStringArray(listing.images);
+  return arr.length ? arr[0] : undefined;
+}
 
-  const [items, total] = await Promise.all([
-    db.listing.findMany({
-      where,
-      orderBy: { updatedAt: "desc" },
-      select: {
-        id: true,
-        title: true,
-        city: true,
-        price: true,
-        beds: true,
-        baths: true,
-        status: true,
-        images: true, // Json?
-        landlord: {
-          select: {
-            email: true,
-            landlordProfile: { select: { fullName: true } },
-          },
-        },
-        updatedAt: true,
-        createdAt: true,
-      },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-    db.listing.count({ where }),
-  ]);
+// Currency (monthly CAD)
+function toCad(n: number) {
+  return n.toLocaleString("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
+}
 
-  const pages = Math.max(Math.ceil(total / pageSize), 1);
+/* ----------------------------------------------------------------------------
+ * Server actions (all return Promise<void> so <form action={...}> is valid)
+ * --------------------------------------------------------------------------*/
+
+export async function approveListing(formData: FormData): Promise<void> {
+  "use server";
+  const session = await getSessionFromCookie();
+  if (!session) notFound();
+  if (!canModerate({ role: session.role as string | null, email: session.email })) notFound();
+
+  const id = formData.get("id") as string | null;
+  if (!id) return;
+
+  await db.listing.update({
+    where: { id },
+    data: { status: "APPROVED" },
+  });
+
+  revalidatePath("/admin/listings");
+}
+
+export async function rejectListing(formData: FormData): Promise<void> {
+  "use server";
+  const session = await getSessionFromCookie();
+  if (!session) notFound();
+  if (!canModerate({ role: session.role as string | null, email: session.email })) notFound();
+
+  const id = formData.get("id") as string | null;
+  if (!id) return;
+
+  await db.listing.update({
+    where: { id },
+    data: { status: "REJECTED" },
+  });
+
+  revalidatePath("/admin/listings");
+}
+
+export async function deleteListing(formData: FormData): Promise<void> {
+  "use server";
+  const session = await getSessionFromCookie();
+  if (!session) notFound();
+  if (!canModerate({ role: session.role as string | null, email: session.email })) notFound();
+
+  const id = formData.get("id") as string | null;
+  if (!id) return;
+
+  await db.listing.delete({ where: { id } });
+  revalidatePath("/admin/listings");
+}
+
+/* ----------------------------------------------------------------------------
+ * Page
+ * --------------------------------------------------------------------------*/
+
+type ListingCardData = Prisma.ListingGetPayload<{
+  select: {
+    id: true;
+    title: true;
+    city: true;
+    status: true;
+    images: true;
+    price: true; // <-- use price, not priceMonthly
+  };
+}>;
+
+async function getData() {
+  const session = await getSessionFromCookie();
+  if (!session) notFound();
+  if (!canModerate({ role: session.role as string | null, email: session.email })) notFound();
+
+  const listings = await db.listing.findMany({
+    orderBy: [{ createdAt: "desc" }],
+    select: {
+      id: true,
+      title: true,
+      city: true,
+      status: true,
+      images: true,
+      price: true, // <-- select price
+    },
+  });
+
+  const byStatus = {
+    PENDING: listings.filter((l) => l.status === "PENDING"),
+    APPROVED: listings.filter((l) => l.status === "APPROVED"),
+    REJECTED: listings.filter((l) => l.status === "REJECTED"),
+  };
+
+  return { byStatus, userEmail: session.email ?? "" };
+}
+
+export default async function AdminListingsPage() {
+  const { byStatus, userEmail } = await getData();
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8">
-      <h1 className="text-2xl font-semibold mb-4">Admin • Listings Review</h1>
-
-      <div className="flex items-center gap-2 mb-4">
-        {allowed.map((k) => {
-          const href = `/admin/listings?status=${k}`;
-          const active = k === filterStatus;
-          return (
-            <a
-              key={k}
-              href={href}
-              className={`px-3 py-1.5 rounded-xl border ${
-                active ? "bg-black text-white" : "hover:bg-gray-50"
-              }`}
-            >
-              {k[0] + k.slice(1).toLowerCase()}
-            </a>
-          );
-        })}
-        <div className="ml-auto text-sm text-zinc-600">{total} results</div>
-      </div>
-
-      <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {items.map((l) => {
-          // ✅ Safely derive a string cover image
-          const cover =
-            Array.isArray(l.images) && typeof l.images[0] === "string"
-              ? l.images[0]
-              : "/placeholder.svg";
-
-          const hostName =
-            l.landlord?.landlordProfile?.fullName ??
-            l.landlord?.email ??
-            "—";
-
-          return (
-            <li key={l.id} className="rounded-2xl border overflow-hidden">
-              <div className="aspect-[16/10] bg-gray-100 overflow-hidden">
-                <img
-                  src={cover}
-                  alt={l.title}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="p-4 space-y-2">
-                <div className="font-medium line-clamp-1">{l.title}</div>
-                <div className="text-sm text-zinc-600">{l.city}</div>
-                <div className="text-sm">
-                  ${Math.round(l.price / 100)} /{" "}
-                  <span className="text-zinc-500">month</span>
-                </div>
-                <div className="text-xs text-zinc-600">
-                  {l.beds} bed • {l.baths} bath
-                </div>
-                <div className="text-xs text-zinc-500">Host: {hostName}</div>
-                <div className="text-xs text-zinc-500">Status: {l.status}</div>
-
-                {/* Actions */}
-                {l.status === "PENDING" ? (
-                  <div className="pt-2 flex gap-2">
-                    <form action={approveListing}>
-                      <input type="hidden" name="id" value={l.id} />
-                      <button className="rounded-xl px-3 py-1.5 border bg-black text-white">
-                        Approve
-                      </button>
-                    </form>
-                    <form action={rejectListing}>
-                      <input type="hidden" name="id" value={l.id} />
-                      <button className="rounded-xl px-3 py-1.5 border">
-                        Reject
-                      </button>
-                    </form>
-                  </div>
-                ) : (
-                  <div className="pt-2 text-xs text-zinc-500">
-                    No actions available for this status.
-                  </div>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-
-      {/* Pagination */}
-      {pages > 1 && (
-        <div className="mt-8 flex items-center justify-center gap-2">
-          <PageLink
-            status={filterStatus}
-            page={Math.max(page - 1, 1)}
-            disabled={page === 1}
-          >
-            Prev
-          </PageLink>
-          <div className="text-sm">
-            Page {page} of {pages}
-          </div>
-          <PageLink
-            status={filterStatus}
-            page={Math.min(page + 1, pages)}
-            disabled={page === pages}
-          >
-            Next
-          </PageLink>
+    <main className="mx-auto max-w-6xl p-6 space-y-10">
+      <header className="flex items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Admin · Listings</h1>
+          <p className="text-sm text-muted-foreground">
+            Moderating as <span className="font-medium">{userEmail}</span>
+          </p>
         </div>
-      )}
+        <Link
+          href="/"
+          className="rounded-xl border px-4 py-2 text-sm hover:bg-muted transition"
+        >
+          Back to site
+        </Link>
+      </header>
+
+      {/* Pending */}
+      <section>
+        <h2 className="mb-3 text-xl font-semibold">Pending Approval</h2>
+        {byStatus.PENDING.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No listings awaiting approval.</p>
+        ) : (
+          <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {byStatus.PENDING.map((l) => (
+              <li key={l.id} className="rounded-2xl border p-3">
+                <ListingCard listing={l} />
+                <div className="mt-3 flex gap-2">
+                  <form action={approveListing}>
+                    <input type="hidden" name="id" value={l.id} />
+                    <button
+                      type="submit"
+                      className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                    >
+                      Approve
+                    </button>
+                  </form>
+                  <form action={rejectListing}>
+                    <input type="hidden" name="id" value={l.id} />
+                    <button
+                      type="submit"
+                      className="rounded-xl bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                    >
+                      Reject
+                    </button>
+                  </form>
+                  <form action={deleteListing} className="ml-auto">
+                    <input type="hidden" name="id" value={l.id} />
+                    <button
+                      type="submit"
+                      className="rounded-xl border px-3 py-2 text-sm hover:bg-muted"
+                    >
+                      Delete
+                    </button>
+                  </form>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Approved */}
+      <section>
+        <h2 className="mb-3 text-xl font-semibold">Approved</h2>
+        {byStatus.APPROVED.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No approved listings yet.</p>
+        ) : (
+          <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {byStatus.APPROVED.map((l) => (
+              <li key={l.id} className="rounded-2xl border p-3">
+                <ListingCard listing={l} />
+                <div className="mt-3 flex gap-2">
+                  <form action={rejectListing}>
+                    <input type="hidden" name="id" value={l.id} />
+                    <button
+                      type="submit"
+                      className="rounded-xl bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                    >
+                      Move to Rejected
+                    </button>
+                  </form>
+                  <form action={deleteListing} className="ml-auto">
+                    <input type="hidden" name="id" value={l.id} />
+                    <button
+                      type="submit"
+                      className="rounded-xl border px-3 py-2 text-sm hover:bg-muted"
+                    >
+                      Delete
+                    </button>
+                  </form>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Rejected */}
+      <section>
+        <h2 className="mb-3 text-xl font-semibold">Rejected</h2>
+        {byStatus.REJECTED.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No rejected listings.</p>
+        ) : (
+          <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {byStatus.REJECTED.map((l) => (
+              <li key={l.id} className="rounded-2xl border p-3">
+                <ListingCard listing={l} />
+                <div className="mt-3 flex gap-2">
+                  <form action={approveListing}>
+                    <input type="hidden" name="id" value={l.id} />
+                    <button
+                      type="submit"
+                      className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                    >
+                      Move to Approved
+                    </button>
+                  </form>
+                  <form action={deleteListing} className="ml-auto">
+                    <input type="hidden" name="id" value={l.id} />
+                    <button
+                      type="submit"
+                      className="rounded-xl border px-3 py-2 text-sm hover:bg-muted"
+                    >
+                      Delete
+                    </button>
+                  </form>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </main>
   );
 }
 
-function PageLink({
-  status,
-  page,
-  disabled,
-  children,
-}: {
-  status: Status;
-  page: number;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  const href = `/admin/listings?status=${encodeURIComponent(status)}&page=${page}`;
+/* ----------------------------------------------------------------------------
+ * Small card component (server)
+ * --------------------------------------------------------------------------*/
+
+function ListingCard({ listing }: { listing: ListingCardData }) {
+  const img = firstImageUrl(listing);
   return (
-    <a
-      href={href}
-      className={`px-3 py-1.5 rounded-xl border ${
-        disabled ? "pointer-events-none opacity-50" : "hover:bg-gray-50"
-      }`}
-    >
-      {children}
-    </a>
+    <div className="flex gap-3">
+      <div className="relative h-24 w-32 overflow-hidden rounded-xl bg-muted">
+        {img ? (
+          <Image src={img} alt={listing.title ?? "Listing"} fill className="object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+            No image
+          </div>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium">{listing.title || "Untitled listing"}</div>
+        <div className="text-sm text-muted-foreground">{listing.city}</div>
+        <div className="mt-1 text-sm">
+          {toCad(listing.price ?? 0)}/mo
+        </div>
+        <div className="mt-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+          {listing.status}
+        </div>
+        <div className="mt-1">
+          <Link
+            href={`/listing/${listing.id}`}
+            className="text-xs underline underline-offset-4 hover:opacity-80"
+          >
+            View details
+          </Link>
+        </div>
+      </div>
+    </div>
   );
 }

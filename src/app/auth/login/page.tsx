@@ -1,97 +1,156 @@
-// src/app/auth/login/page.tsx
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
-import { FiMail, FiLock } from "react-icons/fi";
+import * as React from "react";
+import { useSearchParams } from "next/navigation";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+
+const HOMEIQ_GREEN = "#1A6E4E";
+const SESSION_COOKIE_NAME = "homeiq_session";
 
 export default function LoginPage() {
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const sp = useSearchParams();
+  const next = sp.get("next");
+  const verified = sp.get("verified") === "1";
 
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [showPwd, setShowPwd] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string>("");
+
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setErr(null);
+    setError("");
     setLoading(true);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        credentials: "include", // ✅ ensure Set-Cookie is accepted
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, next: next || "/" }),
+      });
 
-    const form = new FormData(e.currentTarget);
-    const email = String(form.get("email") || "");
-    const password = String(form.get("password") || "");
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body?.error ?? body?.message ?? "Login failed.");
+        return;
+        }
 
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
+      // ✅ Wait briefly for the cookie to actually be stored
+      await waitForSessionCookie(SESSION_COOKIE_NAME, 2000);
 
-    setLoading(false);
-    if (res.ok) {
-      window.location.href = "/";
-    } else {
-      const data = await res.json().catch(() => ({}));
-      setErr(data?.error ?? "Invalid email or password");
+      // Optional: warm /api/auth/me once (no-store)
+      try {
+        await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
+      } catch {}
+
+      // ✅ Let other tabs know
+      try {
+        localStorage.setItem("homeiq_auth_changed", Date.now().toString());
+      } catch {}
+
+      // ✅ Bulletproof: hard reload so Header re-runs immediately
+      window.location.href = body?.next || next || "/";
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
     }
   }
 
   return (
-    <main className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-md px-4 py-10">
-        <div className="mb-8 text-center">
-          <Link href="/" className="inline-block text-2xl font-semibold tracking-wide text-brand-700">
-            HOMEIQ
-          </Link>
-          <h1 className="mt-4 text-3xl font-semibold">Welcome back</h1>
-          <p className="mt-2 text-gray-600">Log in to continue to HOMEIQ.</p>
+    <main className="mx-auto max-w-md px-4 py-10">
+      <h1 className="mb-6 text-3xl font-semibold tracking-tight">Sign in</h1>
+
+      {verified && (
+        <div className="mb-4 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          Email verified! You can sign in now.
         </div>
+      )}
 
-        <div className="rounded-2xl bg-white shadow-sm ring-1 ring-gray-100 p-6">
-          <form onSubmit={onSubmit} className="space-y-5">
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium">Email</span>
-              <div className="relative">
-                <FiMail className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  name="email"
-                  type="email"
+      {error && (
+        <div className="mb-4 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <Card className="rounded-2xl shadow-sm border">
+        <CardContent className="p-6">
+          <form className="space-y-4" onSubmit={onSubmit}>
+            <div>
+              <label className="text-sm font-medium" htmlFor="email">Email</label>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                className="mt-2"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium" htmlFor="password">Password</label>
+              <div className="mt-2 flex gap-2">
+                <Input
+                  id="password"
+                  type={showPwd ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   required
-                  placeholder="you@example.com"
-                  className="w-full rounded-lg border border-gray-300 bg-white px-9 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowPwd((s) => !s)}
+                >
+                  {showPwd ? "Hide" : "Show"}
+                </Button>
               </div>
-            </label>
+            </div>
 
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium">Password</span>
-              <div className="relative">
-                <FiLock className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  name="password"
-                  type="password"
-                  required
-                  placeholder="Your password"
-                  className="w-full rounded-lg border border-gray-300 bg-white px-9 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-                />
-              </div>
-            </label>
-
-            {err && <p className="text-sm text-red-600">{err}</p>}
-
-            <button
+            <Button
+              type="submit"
               disabled={loading}
-              className="mt-2 w-full rounded-xl bg-brand-600 px-5 py-3 font-medium text-white shadow-sm transition hover:opacity-95 disabled:opacity-60"
+              className="w-full rounded-full"
+              style={{ background: HOMEIQ_GREEN }}
             >
-              {loading ? "Logging in..." : "Log in"}
-            </button>
-          </form>
+              {loading ? "Signing in…" : "Sign in"}
+            </Button>
 
-          <div className="mt-6 text-center text-sm text-gray-600">
-            Don’t have an account?{" "}
-            <Link href="/auth/register" className="font-medium text-brand-700 hover:underline">
-              Create one
-            </Link>
-          </div>
-        </div>
+            <div className="mt-2 text-center text-sm">
+              <a href="/auth/forgot" className="text-gray-600 hover:underline">
+                Forgot your password?
+              </a>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <div className="mt-6 text-center text-sm text-gray-600">
+        Don’t have an account?{" "}
+        <a href="/auth/register" className="font-medium text-gray-800 hover:underline">
+          Create one
+        </a>
       </div>
     </main>
   );
+}
+
+/** Polls briefly for a cookie to appear before navigating. */
+async function waitForSessionCookie(name: string, timeoutMs = 2000) {
+  if (typeof document === "undefined") return true;
+  const key = `${name}=`;
+  if (document.cookie.includes(key)) return true;
+
+  const start = performance.now();
+  while (performance.now() - start < timeoutMs) {
+    if (document.cookie.includes(key)) return true;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return false;
 }

@@ -1,65 +1,105 @@
-import { getMyDraft, updateDraftListing } from '@/lib/listings';
-import { homeiq } from '@/styles/theme';
+import { redirect } from "next/navigation";
+import { prisma as db } from "@/lib/db";
+import { getCurrentUserId } from "@/lib/currentUser";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { pathFor, prevPath, type WizardStep } from "@/lib/listingWizard";
 
+export const dynamic = "force-dynamic";
+const CURRENT_STEP: WizardStep = "pricing";
 
-export const dynamic = 'force-dynamic';
-
-
-export default async function PricingPage() {
-const draft = await getMyDraft();
-const price = draft?.price ?? 0;
-return (
-<div className="space-y-6">
-<Header step="3" title="Pricing & availability" subtitle="Set rent, deposit, lease term and move-in date." />
-<form action={savePricing} className="space-y-4">
-<div className="grid sm:grid-cols-2 gap-4">
-<Field label="Monthly rent (CAD)" name="price" defaultValue={(price/100).toString()} type="number" min="0" step="1" />
-<Field label="Deposit (CAD)" name="deposit" type="number" min="0" step="1" />
-<Field label="Lease term (months)" name="lease" type="number" min="1" step="1" />
-<Field label="Available from" name="available" type="date" />
-</div>
-<div className="flex gap-3">
-<a href="/landlord/new/photos" className="rounded-full px-5 py-2 border">Back</a>
-<button className="rounded-full px-5 py-2 text-white" style={{ backgroundColor: homeiq.green }}>Save & Continue</button>
-</div>
-</form>
-</div>
-);
+async function requireUser() {
+  const uid = await getCurrentUserId();
+  if (!uid) redirect("/auth/login?next=/landlord/new/pricing");
+  return uid;
 }
-
 
 async function savePricing(formData: FormData) {
-'use server';
-const price = Number(formData.get('price') || '0');
-const deposit = Number(formData.get('deposit') || '0');
-const lease = Number(formData.get('lease') || '12');
-const available = formData.get('available') as string | null;
-await updateDraftListing({
-price: Math.round(price * 100),
-depositCents: Math.round(deposit * 100),
-minLeaseMonths: lease || null,
-// store available date in an extra Json or new field if you add one later
-});
+  "use server";
+  await requireUser();
+
+  const listingId = (formData.get("listingId") as string) || "";
+  if (!listingId) redirect("/landlord/new/basics");
+
+  const priceDollars = Number(formData.get("price") || 0);
+  const depositDollars = Number(formData.get("deposit") || 0);
+  const minLeaseMonths = formData.get("minLeaseMonths");
+
+  const price = Math.max(0, Math.round(priceDollars * 100));
+  const depositCents =
+    Number.isFinite(depositDollars) && depositDollars > 0 ? Math.round(depositDollars * 100) : null;
+
+  await db.listing.update({
+    where: { id: listingId },
+    data: {
+      price,
+      depositCents,
+      minLeaseMonths: minLeaseMonths ? Math.max(0, Math.floor(Number(minLeaseMonths))) : null,
+    },
+    select: { id: true },
+  });
+
+  // ✅ Next: PHOTOS
+  redirect(pathFor("photos", listingId));
 }
 
+export default async function PricingPage({
+  searchParams,
+}: { searchParams?: Record<string, string | string[] | undefined> }) {
+  const listingId =
+    typeof searchParams?.listingId === "string" ? (searchParams!.listingId as string) : undefined;
 
-function Field(props: any){
-const { label, name, ...rest } = props;
-return (
-<label className="block">
-<div className="text-sm text-gray-700 mb-1">{label}</div>
-<input name={name} {...rest} className="w-full border rounded-xl px-3 py-2" />
-</label>
-);
-}
+  if (!listingId) redirect("/landlord/new/basics");
 
+  const listing = await db.listing.findUnique({
+    where: { id: listingId },
+    select: { id: true, price: true, depositCents: true, minLeaseMonths: true },
+  });
+  if (!listing) redirect("/landlord/new/basics");
 
-function Header({ step, title, subtitle }:{ step:string; title:string; subtitle:string; }){
-return (
-<div>
-<p className="text-sm text-gray-500">Step {step} of 7</p>
-<h1 className="text-2xl font-semibold">{title}</h1>
-<p className="text-gray-600">{subtitle}</p>
-</div>
-);
+  return (
+    <main className="mx-auto max-w-5xl px-4 py-10">
+      <div className="mb-6">
+        <div className="text-sm text-gray-500">Step 3 of 5</div>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Pricing & availability</h1>
+        <div className="mt-4"><Progress value={60} className="h-2" /></div>
+      </div>
+
+      <Card className="rounded-2xl shadow-sm border">
+        <CardContent className="p-6">
+          <form action={savePricing} className="grid grid-cols-1 gap-5 md:grid-cols-2">
+            <input type="hidden" name="listingId" value={listing.id} />
+
+            <div>
+              <label htmlFor="price" className="text-sm font-medium">Monthly price (CAD)*</label>
+              <Input id="price" name="price" type="number" min={0} step={1}
+                     defaultValue={Math.round((listing.price || 0) / 100)} className="mt-2" required />
+            </div>
+
+            <div>
+              <label htmlFor="deposit" className="text-sm font-medium">Security deposit (CAD)</label>
+              <Input id="deposit" name="deposit" type="number" min={0} step={1}
+                     defaultValue={listing.depositCents ? Math.round(listing.depositCents / 100) : 0}
+                     className="mt-2" />
+            </div>
+
+            <div>
+              <label htmlFor="minLeaseMonths" className="text-sm font-medium">Minimum lease (months)</label>
+              <Input id="minLeaseMonths" name="minLeaseMonths" type="number" min={0} step={1}
+                     defaultValue={listing.minLeaseMonths ?? ""} className="mt-2" />
+            </div>
+
+            <div className="md:col-span-2 flex items-center justify-between pt-2">
+              <a href={prevPath(CURRENT_STEP, listing.id)} className="rounded-full px-6 py-2 border">Back</a>
+              <Button type="submit" className="rounded-full px-6" style={{ background: "#1A6E4E" }}>
+                Save & continue
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </main>
+  );
 }

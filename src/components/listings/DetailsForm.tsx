@@ -1,4 +1,3 @@
-// src/components/listings/DetailsForm.tsx
 "use client";
 
 import { useState } from "react";
@@ -15,29 +14,94 @@ type Json =
   | Json[]
   | { [key: string]: Json };
 
-type EnumLaundry = "IN_UNIT" | "SHARED" | "NONE";
-type EnumParking = "STREET" | "ON_SITE" | "NONE";
-type EnumPet = "NONE" | "CATS" | "DOGS" | "CATS_AND_DOGS" | "RESTRICTED";
 type EnumVibe = "QUIET" | "MODERATE" | "BUSY";
 type EnumArea = "URBAN" | "SUBURBAN" | "RURAL";
 
-const LAUNDRY_OPTIONS: ReadonlyArray<"" | EnumLaundry> = ["", "IN_UNIT", "SHARED", "NONE"];
-const PARKING_OPTIONS: ReadonlyArray<"" | EnumParking> = ["", "STREET", "ON_SITE", "NONE"];
-const PET_OPTIONS: ReadonlyArray<"" | EnumPet> = ["", "NONE", "CATS", "DOGS", "CATS_AND_DOGS", "RESTRICTED"];
+// detail enums
+type EnumNoise = "VERY_QUIET" | "MOSTLY_QUIET" | "AVERAGE" | "LIVELY";
+type EnumLight = "LOW" | "MODERATE" | "BRIGHT" | "VERY_BRIGHT";
+
 const VIBE_OPTIONS: ReadonlyArray<"" | EnumVibe> = ["", "QUIET", "MODERATE", "BUSY"];
 const AREA_OPTIONS: ReadonlyArray<"" | EnumArea> = ["", "URBAN", "SUBURBAN", "RURAL"];
+const NOISE_OPTIONS: ReadonlyArray<"" | EnumNoise> = [
+  "",
+  "VERY_QUIET",
+  "MOSTLY_QUIET",
+  "AVERAGE",
+  "LIVELY",
+];
+const LIGHT_OPTIONS: ReadonlyArray<"" | EnumLight> = [
+  "",
+  "LOW",
+  "MODERATE",
+  "BRIGHT",
+  "VERY_BRIGHT",
+];
+
+// Heating / cooling tick options
+const HEATING_OPTIONS = [
+  { id: "BASEBOARD", label: "Baseboard" },
+  { id: "FORCED_AIR", label: "Forced air" },
+  { id: "RADIANT", label: "Radiant / in-floor" },
+  { id: "ELECTRIC", label: "Electric heaters" },
+  { id: "GAS", label: "Gas furnace" },
+  { id: "HEAT_PUMP", label: "Heat pump" },
+  { id: "FIREPLACE", label: "Fireplace (gas / electric)" },
+] as const;
+
+const COOLING_OPTIONS = [
+  { id: "CENTRAL_AC", label: "Central AC" },
+  { id: "WINDOW_UNIT", label: "Window AC unit(s)" },
+  { id: "PORTABLE_UNIT", label: "Portable AC unit(s)" },
+  { id: "CEILING_FANS", label: "Ceiling / box fans" },
+  { id: "NO_COOLING", label: "No dedicated cooling" },
+] as const;
+
+// IDs we store in interiorNotes (comma-separated)
+const INTERIOR_FEATURES = [
+  { id: "UPDATED_KITCHEN", label: "Updated / modern kitchen" },
+  { id: "UPDATED_BATHROOM", label: "Updated bathroom" },
+  { id: "STAINLESS_APPLIANCES", label: "Stainless appliances" },
+  { id: "HARDWOOD_FLOORS", label: "Hardwood / laminate floors" },
+  { id: "CARPET_BEDROOMS", label: "Carpet in bedrooms" },
+  { id: "LARGE_WINDOWS", label: "Large windows / great light" },
+  { id: "HIGH_CEILINGS", label: "High ceilings" },
+  { id: "IN_UNIT_STORAGE", label: "In-unit storage / walk-in closet" },
+  { id: "BALCONY_PATIO", label: "Balcony / patio" },
+] as const;
+
+// IDs we store in buildingAmenitiesNotes (comma-separated)
+const AMENITY_FEATURES = [
+  { id: "ELEVATOR", label: "Elevator" },
+  { id: "GYM", label: "Gym / fitness room" },
+  { id: "POOL", label: "Pool / hot tub" },
+  { id: "ROOFTOP", label: "Rooftop / shared patio" },
+  { id: "PARTY_ROOM", label: "Lounge / party room" },
+  { id: "BIKE_STORAGE", label: "Bike storage" },
+  { id: "STORAGE_LOCKERS", label: "Storage lockers" },
+  { id: "VISITOR_PARKING", label: "Visitor parking" },
+  { id: "UNDERGROUND_PARKING", label: "Underground parking" },
+  { id: "SECURITY", label: "Security cameras / concierge" },
+  { id: "ON_SITE_MANAGER", label: "On-site manager / caretaker" },
+  { id: "SNOW_REMOVAL", label: "Snow removal included" },
+  { id: "LAWN_CARE", label: "Lawn / yard care included" },
+  { id: "WIFI_INCLUDED", label: "Wi-Fi included" },
+] as const;
 
 type Initial = {
-  furnished: boolean;
-  laundry: EnumLaundry | null;
-  parkingType: EnumParking | null;
-  petPolicy: EnumPet | null;
   smokingAllowed: boolean;
-  heating: string;
-  cooling: string;
-  maxOccupants: number | "";
-  minLeaseMonths: number | "";
-  accessibility: Json | null; // ✅ typed JSON (no any)
+  heating: string | null;
+  cooling: string | null;
+
+  noiseLevel?: EnumNoise | null;
+  naturalLight?: EnumLight | null;
+
+  // will store comma-separated IDs for selected options
+  interiorNotes?: string | null;
+  buildingAmenitiesNotes?: string | null;
+  rulesNotes?: string | null;
+
+  accessibility: Json | null;
   neighborhoodVibe: EnumVibe | null;
   areaType: EnumArea | null;
   distanceBusMeters: number | "";
@@ -47,6 +111,56 @@ type Initial = {
   distancePharmacyMeters: number | "";
   distanceGymMeters: number | "";
 };
+
+// helper: split existing heating/cooling string back into selected IDs + "other"
+function splitInitialOptions(
+  raw: string | null | undefined,
+  options: readonly { id: string; label: string }[]
+): { selected: string[]; other: string } {
+  if (!raw) return { selected: [], other: "" };
+
+  const labelToId = new Map(
+    options.map((o) => [o.label.toLowerCase(), o.id])
+  );
+
+  const parts = raw
+    .split(/[;,]/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const selected: string[] = [];
+  const otherParts: string[] = [];
+
+  for (const part of parts) {
+    const id = labelToId.get(part.toLowerCase());
+    if (id) {
+      if (!selected.includes(id)) selected.push(id);
+    } else {
+      otherParts.push(part);
+    }
+  }
+
+  return {
+    selected,
+    other: otherParts.join("; "),
+  };
+}
+
+function buildOptionText(
+  ids: string[],
+  other: string,
+  options: readonly { id: string; label: string }[]
+): string | null {
+  const labels = options
+    .filter((o) => ids.includes(o.id))
+    .map((o) => o.label);
+
+  const trimmedOther = other.trim();
+  if (trimmedOther) labels.push(trimmedOther);
+
+  if (!labels.length) return null;
+  return labels.join("; ");
+}
 
 export default function DetailsForm({
   listingId,
@@ -59,26 +173,87 @@ export default function DetailsForm({
   const [error, setError] = useState<string>("");
   const [busy, setBusy] = useState(false);
 
-  // Keep the textarea value as a string; parse to Json on submit.
+  // Normalize accessibility from Json into a simple object
+  const initialAccessibility =
+    initial.accessibility &&
+    typeof initial.accessibility === "object" &&
+    !Array.isArray(initial.accessibility)
+      ? (initial.accessibility as Record<string, Json>)
+      : {};
+
+  // Parse the saved comma-separated lists into arrays of IDs
+  const parsedInterior = (initial.interiorNotes ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const parsedAmenities = (initial.buildingAmenitiesNotes ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  // Parse previous heating / cooling strings into options + other
+  const heatingInit = splitInitialOptions(initial.heating, HEATING_OPTIONS);
+  const coolingInit = splitInitialOptions(initial.cooling, COOLING_OPTIONS);
+
   const [form, setForm] = useState({
-    furnished: Boolean(initial.furnished),
-    laundry: (initial.laundry ?? "") as "" | EnumLaundry,
-    parkingType: (initial.parkingType ?? "") as "" | EnumParking,
-    petPolicy: (initial.petPolicy ?? "") as "" | EnumPet,
+    // comfort & environment
     smokingAllowed: Boolean(initial.smokingAllowed),
-    heating: initial.heating || "",
-    cooling: initial.cooling || "",
-    maxOccupants: initial.maxOccupants === "" ? "" : String(initial.maxOccupants ?? ""),
-    minLeaseMonths: initial.minLeaseMonths === "" ? "" : String(initial.minLeaseMonths ?? ""),
-    accessibilityStr: JSON.stringify(initial.accessibility ?? null, null, 0), // <- string
+    heatingOptions: heatingInit.selected as string[],
+    heatingOther: heatingInit.other,
+    coolingOptions: coolingInit.selected as string[],
+    coolingOther: coolingInit.other,
+    noiseLevel: (initial.noiseLevel ?? "") as "" | EnumNoise,
+    naturalLight: (initial.naturalLight ?? "") as "" | EnumLight,
+
+    // interior & amenities: list of selected IDs
+    interiorFeatures: parsedInterior as string[],
+    amenitiesFeatures: parsedAmenities as string[],
+    interiorOther: "", // optional free-text
+    amenitiesOther: "",
+
+    // accessibility (booleans + notes -> serialize to Json)
+    accessStepFree: Boolean(initialAccessibility.stepFree),
+    accessElevator: Boolean(initialAccessibility.elevator),
+    accessWideDoors: Boolean(initialAccessibility.wideDoors),
+    accessBathroom: Boolean(initialAccessibility.accessibleBathroom),
+    accessParking: Boolean(initialAccessibility.accessibleParking),
+    accessNotes:
+      typeof initialAccessibility.notes === "string"
+        ? (initialAccessibility.notes as string)
+        : "",
+
+    // extra descriptive notes
+    rulesNotes: initial.rulesNotes ?? "",
+
+    // neighborhood & proximity
     neighborhoodVibe: (initial.neighborhoodVibe ?? "") as "" | EnumVibe,
     areaType: (initial.areaType ?? "") as "" | EnumArea,
-    distanceBusMeters: initial.distanceBusMeters === "" ? "" : String(initial.distanceBusMeters ?? ""),
-    distanceGroceryMeters: initial.distanceGroceryMeters === "" ? "" : String(initial.distanceGroceryMeters ?? ""),
-    distanceSchoolMeters: initial.distanceSchoolMeters === "" ? "" : String(initial.distanceSchoolMeters ?? ""),
-    distanceParkMeters: initial.distanceParkMeters === "" ? "" : String(initial.distanceParkMeters ?? ""),
-    distancePharmacyMeters: initial.distancePharmacyMeters === "" ? "" : String(initial.distancePharmacyMeters ?? ""),
-    distanceGymMeters: initial.distanceGymMeters === "" ? "" : String(initial.distanceGymMeters ?? ""),
+    distanceBusMeters:
+      initial.distanceBusMeters === "" || initial.distanceBusMeters == null
+        ? ""
+        : String(initial.distanceBusMeters),
+    distanceGroceryMeters:
+      initial.distanceGroceryMeters === "" ||
+      initial.distanceGroceryMeters == null
+        ? ""
+        : String(initial.distanceGroceryMeters),
+    distanceSchoolMeters:
+      initial.distanceSchoolMeters === "" || initial.distanceSchoolMeters == null
+        ? ""
+        : String(initial.distanceSchoolMeters),
+    distanceParkMeters:
+      initial.distanceParkMeters === "" || initial.distanceParkMeters == null
+        ? ""
+        : String(initial.distanceParkMeters),
+    distancePharmacyMeters:
+      initial.distancePharmacyMeters === "" ||
+      initial.distancePharmacyMeters == null
+        ? ""
+        : String(initial.distancePharmacyMeters),
+    distanceGymMeters:
+      initial.distanceGymMeters === "" || initial.distanceGymMeters == null
+        ? ""
+        : String(initial.distanceGymMeters),
   });
 
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
@@ -100,53 +275,93 @@ export default function DetailsForm({
     return n;
   }
 
+  function toggleId(list: string[], id: string, checked: boolean): string[] {
+    if (checked) {
+      if (list.includes(id)) return list;
+      return [...list, id];
+    }
+    return list.filter((v) => v !== id);
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setBusy(true);
 
-    const maxOccupants = toIntOrNull(form.maxOccupants);
-    const minLeaseMonths = toIntOrNull(form.minLeaseMonths);
+    // Build structured accessibility JSON from the form
+    const accessibility: Json = {
+      stepFree: form.accessStepFree,
+      elevator: form.accessElevator,
+      wideDoors: form.accessWideDoors,
+      accessibleBathroom: form.accessBathroom,
+      accessibleParking: form.accessParking,
+      notes: form.accessNotes.trim() || null,
+    };
 
-    // Parse textarea JSON safely
-    let accessibility: Json;
-    try {
-      const parsed = JSON.parse(form.accessibilityStr || "null");
-      // quick runtime check to ensure parsed is Json-ish (basic)
-      if (parsed === undefined) throw new Error("Invalid JSON");
-      accessibility = parsed as Json;
-    } catch {
-      setError("Accessibility must be valid JSON (or leave it empty).");
-      setBusy(false);
-      return;
-    }
+    // Convert selected IDs into comma-separated strings for now
+    const interiorNotes =
+      [
+        ...form.interiorFeatures,
+        ...(form.interiorOther.trim()
+          ? [`OTHER:${form.interiorOther.trim()}`]
+          : []),
+      ].join(",") || null;
+
+    const buildingAmenitiesNotes =
+      [
+        ...form.amenitiesFeatures,
+        ...(form.amenitiesOther.trim()
+          ? [`OTHER:${form.amenitiesOther.trim()}`]
+          : []),
+      ].join(",") || null;
+
+    // Build heating / cooling strings from selected options + "other"
+    const heatingText = buildOptionText(
+      form.heatingOptions,
+      form.heatingOther,
+      HEATING_OPTIONS
+    );
+    const coolingText = buildOptionText(
+      form.coolingOptions,
+      form.coolingOther,
+      COOLING_OPTIONS
+    );
 
     try {
-      const res = await fetch(`/api/host/listings/${encodeURIComponent(listingId)}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          furnished: Boolean(form.furnished),
-          laundry: form.laundry || null,
-          parkingType: form.parkingType || null,
-          petPolicy: form.petPolicy || null,
-          smokingAllowed: Boolean(form.smokingAllowed),
-          heating: form.heating.trim() || null,
-          cooling: form.cooling.trim() || null,
-          maxOccupants,
-          minLeaseMonths,
-          accessibility, // ✅ typed Json sent to server
-          neighborhoodVibe: form.neighborhoodVibe || null,
-          areaType: form.areaType || null,
-          distanceBusMeters: clampMetersStr(form.distanceBusMeters),
-          distanceGroceryMeters: clampMetersStr(form.distanceGroceryMeters),
-          distanceSchoolMeters: clampMetersStr(form.distanceSchoolMeters),
-          distanceParkMeters: clampMetersStr(form.distanceParkMeters),
-          distancePharmacyMeters: clampMetersStr(form.distancePharmacyMeters),
-          distanceGymMeters: clampMetersStr(form.distanceGymMeters),
-        }),
-      });
+      const res = await fetch(
+        `/api/host/listings/${encodeURIComponent(listingId)}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            // comfort & environment
+            smokingAllowed: Boolean(form.smokingAllowed),
+            heating: heatingText,
+            cooling: coolingText,
+            noiseLevel: form.noiseLevel || null,
+            naturalLight: form.naturalLight || null,
+
+            // interior & amenities, saved as strings for now
+            interiorNotes,
+            buildingAmenitiesNotes,
+            rulesNotes: form.rulesNotes.trim() || null,
+
+            // accessibility JSON
+            accessibility,
+
+            // neighborhood & proximity
+            neighborhoodVibe: form.neighborhoodVibe || null,
+            areaType: form.areaType || null,
+            distanceBusMeters: clampMetersStr(form.distanceBusMeters),
+            distanceGroceryMeters: clampMetersStr(form.distanceGroceryMeters),
+            distanceSchoolMeters: clampMetersStr(form.distanceSchoolMeters),
+            distanceParkMeters: clampMetersStr(form.distanceParkMeters),
+            distancePharmacyMeters: clampMetersStr(form.distancePharmacyMeters),
+            distanceGymMeters: clampMetersStr(form.distanceGymMeters),
+          }),
+        }
+      );
 
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -156,7 +371,9 @@ export default function DetailsForm({
       }
 
       // Go to next step: Photos
-      router.replace(`/landlord/new/photos?id=${encodeURIComponent(listingId)}`);
+      router.replace(
+        `/landlord/new/photos?id=${encodeURIComponent(listingId)}`
+      );
     } catch {
       setError("Network error. Please try again.");
       setBusy(false);
@@ -164,218 +381,439 @@ export default function DetailsForm({
   }
 
   return (
-    <form className="space-y-6" onSubmit={onSubmit} noValidate>
+    <form className="space-y-8" onSubmit={onSubmit} noValidate>
       {error && (
         <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-          <input
-            type="checkbox"
-            checked={form.furnished}
-            onChange={(e) => set("furnished", e.target.checked)}
-          />
-          Furnished
-        </label>
-
+      {/* Comfort & environment */}
+      <section className="space-y-4 rounded-xl border bg-white px-4 py-4 sm:px-5 sm:py-5">
         <div>
-          <div className="text-sm font-medium">Laundry</div>
-          <select
-            className="mt-2 block w-full rounded-md border px-3 py-2 text-sm"
-            value={form.laundry}
-            onChange={(e) => set("laundry", e.target.value as "" | EnumLaundry)}
-          >
-            {LAUNDRY_OPTIONS.map((v) => (
-              <option key={v || "blank"} value={v}>
-                {v === "" ? "Select…" : v.replaceAll("_", " ")}
-              </option>
+          <h2 className="text-sm font-semibold">Comfort & environment</h2>
+          <p className="mt-1 text-xs text-gray-500">
+            Tell renters how the home handles heat, cold, light, and everyday
+            comfort.
+          </p>
+        </div>
+
+        {/* Heating / cooling as tickable options */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Heating</div>
+            <div className="grid grid-cols-1 gap-2">
+              {HEATING_OPTIONS.map((opt) => (
+                <label
+                  key={opt.id}
+                  className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs sm:text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={form.heatingOptions.includes(opt.id)}
+                    onChange={(e) =>
+                      set(
+                        "heatingOptions",
+                        toggleId(
+                          form.heatingOptions,
+                          opt.id,
+                          e.target.checked
+                        )
+                      )
+                    }
+                  />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+            <Input
+              className="mt-1"
+              placeholder="Other heating details (optional)"
+              value={form.heatingOther}
+              onChange={(e) => set("heatingOther", e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Cooling</div>
+            <div className="grid grid-cols-1 gap-2">
+              {COOLING_OPTIONS.map((opt) => (
+                <label
+                  key={opt.id}
+                  className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs sm:text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={form.coolingOptions.includes(opt.id)}
+                    onChange={(e) =>
+                      set(
+                        "coolingOptions",
+                        toggleId(
+                          form.coolingOptions,
+                          opt.id,
+                          e.target.checked
+                        )
+                      )
+                    }
+                  />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+            <Input
+              className="mt-1"
+              placeholder="Other cooling details (optional)"
+              value={form.coolingOther}
+              onChange={(e) => set("coolingOther", e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div>
+            <div className="text-sm font-medium">Noise level</div>
+            <select
+              className="mt-2 block w-full rounded-md border px-3 py-2 text-sm"
+              value={form.noiseLevel}
+              onChange={(e) =>
+                set("noiseLevel", e.target.value as "" | EnumNoise)
+              }
+            >
+              {NOISE_OPTIONS.map((v) => (
+                <option key={v || "blank"} value={v}>
+                  {v === ""
+                    ? "Select…"
+                    : v === "VERY_QUIET"
+                    ? "Very quiet"
+                    : v === "MOSTLY_QUIET"
+                    ? "Mostly quiet"
+                    : v === "AVERAGE"
+                    ? "Average"
+                    : "Lively / busy"}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              Based on typical daytime conditions.
+            </p>
+          </div>
+
+          <div>
+            <div className="text-sm font-medium">Natural light</div>
+            <select
+              className="mt-2 block w-full rounded-md border px-3 py-2 text-sm"
+              value={form.naturalLight}
+              onChange={(e) =>
+                set("naturalLight", e.target.value as "" | EnumLight)
+              }
+            >
+              {LIGHT_OPTIONS.map((v) => (
+                <option key={v || "blank"} value={v}>
+                  {v === ""
+                    ? "Select…"
+                    : v === "LOW"
+                    ? "Low"
+                    : v === "MODERATE"
+                    ? "Moderate"
+                    : v === "BRIGHT"
+                    ? "Bright"
+                    : "Very bright"}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <label className="mt-1 flex items-center gap-2 rounded-md border px-3 py-2 text-sm sm:mt-6">
+            <input
+              type="checkbox"
+              checked={form.smokingAllowed}
+              onChange={(e) => set("smokingAllowed", e.target.checked)}
+            />
+            Smoking allowed inside
+          </label>
+        </div>
+      </section>
+
+      {/* Interior & amenities */}
+      <section className="space-y-4 rounded-xl border bg-white px-4 py-4 sm:px-5 sm:py-5">
+        <div>
+          <h2 className="text-sm font-semibold">Interior & amenities</h2>
+          <p className="mt-1 text-xs text-gray-500">
+            Tick everything that&apos;s included. This helps your listing feel
+            detailed and professional.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Interior features
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {INTERIOR_FEATURES.map((feat) => (
+              <label
+                key={feat.id}
+                className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs sm:text-sm"
+              >
+                <input
+                  type="checkbox"
+                  checked={form.interiorFeatures.includes(feat.id)}
+                  onChange={(e) =>
+                    set(
+                      "interiorFeatures",
+                      toggleId(
+                        form.interiorFeatures,
+                        feat.id,
+                        e.target.checked
+                      )
+                    )
+                  }
+                />
+                {feat.label}
+              </label>
             ))}
-          </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium" htmlFor="interiorOther">
+              Other interior details (optional)
+            </label>
+            <Input
+              id="interiorOther"
+              className="mt-2"
+              value={form.interiorOther}
+              onChange={(e) => set("interiorOther", e.target.value)}
+              placeholder="E.g., feature wall, smart thermostat, soundproofing…"
+            />
+          </div>
         </div>
 
-        <div>
-          <div className="text-sm font-medium">Parking</div>
-          <select
-            className="mt-2 block w-full rounded-md border px-3 py-2 text-sm"
-            value={form.parkingType}
-            onChange={(e) => set("parkingType", e.target.value as "" | EnumParking)}
-          >
-            {PARKING_OPTIONS.map((v) => (
-              <option key={v || "blank"} value={v}>
-                {v === "" ? "Select…" : v.replaceAll("_", " ")}
-              </option>
+        <div className="space-y-3 pt-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Building amenities & services
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {AMENITY_FEATURES.map((feat) => (
+              <label
+                key={feat.id}
+                className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs sm:text-sm"
+              >
+                <input
+                  type="checkbox"
+                  checked={form.amenitiesFeatures.includes(feat.id)}
+                  onChange={(e) =>
+                    set(
+                      "amenitiesFeatures",
+                      toggleId(
+                        form.amenitiesFeatures,
+                        feat.id,
+                        e.target.checked
+                      )
+                    )
+                  }
+                />
+                {feat.label}
+              </label>
             ))}
-          </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium" htmlFor="amenitiesOther">
+              Other amenities / services (optional)
+            </label>
+            <Input
+              id="amenitiesOther"
+              className="mt-2"
+              value={form.amenitiesOther}
+              onChange={(e) => set("amenitiesOther", e.target.value)}
+              placeholder="E.g., package room, coworking lounge, secure bike room…"
+            />
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* House rules */}
+      <section className="space-y-4 rounded-xl border bg-white px-4 py-4 sm:px-5 sm:py-5">
         <div>
-          <div className="text-sm font-medium">Pet policy</div>
-          <select
-            className="mt-2 block w-full rounded-md border px-3 py-2 text-sm"
-            value={form.petPolicy}
-            onChange={(e) => set("petPolicy", e.target.value as "" | EnumPet)}
-          >
-            {PET_OPTIONS.map((v) => (
-              <option key={v || "blank"} value={v}>
-                {v === "" ? "Select…" : v.replaceAll("_", " ")}
-              </option>
-            ))}
-          </select>
+          <h2 className="text-sm font-semibold">House rules & expectations</h2>
+          <p className="mt-1 text-xs text-gray-500">
+            Be clear about how renters should treat your home and common areas.
+          </p>
         </div>
 
-        <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-          <input
-            type="checkbox"
-            checked={form.smokingAllowed}
-            onChange={(e) => set("smokingAllowed", e.target.checked)}
-          />
-          Smoking allowed
-        </label>
-
-        <div />
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label className="text-sm font-medium" htmlFor="heating">Heating</label>
-          <Input
-            id="heating"
-            className="mt-2"
-            value={form.heating}
-            onChange={(e) => set("heating", e.target.value)}
-            placeholder="Baseboard, forced air, radiant…"
+          <label className="text-sm font-medium" htmlFor="rulesNotes">
+            Additional house rules
+          </label>
+          <textarea
+            id="rulesNotes"
+            className="mt-2 w-full min-h-24 rounded-md border px-3 py-2 text-sm"
+            value={form.rulesNotes}
+            onChange={(e) => set("rulesNotes", e.target.value)}
+            placeholder="E.g., quiet hours, no parties, balcony use, garbage days, shared laundry etiquette…"
           />
         </div>
-        <div>
-          <label className="text-sm font-medium" htmlFor="cooling">Cooling</label>
-          <Input
-            id="cooling"
-            className="mt-2"
-            value={form.cooling}
-            onChange={(e) => set("cooling", e.target.value)}
-            placeholder="Central AC, window unit…"
-          />
-        </div>
-      </div>
+      </section>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Accessibility */}
+      <section className="space-y-4 rounded-xl border bg-white px-4 py-4 sm:px-5 sm:py-5">
         <div>
-          <label className="text-sm font-medium" htmlFor="maxOcc">Max occupants</label>
-          <Input
-            id="maxOcc"
-            type="number"
-            min={1}
-            step={1}
-            className="mt-2"
-            value={form.maxOccupants}
-            onChange={(e) => set("maxOccupants", e.target.value)}
-            placeholder="e.g., 3"
-          />
+          <h2 className="text-sm font-semibold">Accessibility</h2>
+          <p className="mt-1 text-xs text-gray-500">
+            Highlight anything that makes your place easier to access. This can
+            be crucial for renters with mobility or health needs.
+          </p>
         </div>
-        <div>
-          <label className="text-sm font-medium" htmlFor="minLease">Minimum lease (months)</label>
-          <Input
-            id="minLease"
-            type="number"
-            min={1}
-            step={1}
-            className="mt-2"
-            value={form.minLeaseMonths}
-            onChange={(e) => set("minLeaseMonths", e.target.value)}
-            placeholder="e.g., 12"
-          />
-        </div>
-      </div>
 
-      <div>
-        <div className="text-sm font-medium">Accessibility (JSON)</div>
-        <textarea
-          className="mt-2 w-full min-h-24 rounded-md border px-3 py-2 text-sm"
-          value={form.accessibilityStr}
-          onChange={(e) => set("accessibilityStr", e.target.value)}
-          placeholder='e.g., {"stepFreeAccess": true, "elevator": true}'
-        />
-        <p className="mt-1 text-xs text-gray-500">Leave empty if not applicable.</p>
-      </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.accessStepFree}
+              onChange={(e) => set("accessStepFree", e.target.checked)}
+            />
+            Step-free entrance
+          </label>
+          <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.accessElevator}
+              onChange={(e) => set("accessElevator", e.target.checked)}
+            />
+            Elevator to unit
+          </label>
+          <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.accessWideDoors}
+              onChange={(e) => set("accessWideDoors", e.target.checked)}
+            />
+            Wide doorways
+          </label>
+          <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.accessBathroom}
+              onChange={(e) => set("accessBathroom", e.target.checked)}
+            />
+            Accessible bathroom
+          </label>
+          <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.accessParking}
+              onChange={(e) => set("accessParking", e.target.checked)}
+            />
+            Reserved accessible parking
+          </label>
+        </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <div className="text-sm font-medium">Neighborhood vibe</div>
-          <select
-            className="mt-2 block w-full rounded-md border px-3 py-2 text-sm"
-            value={form.neighborhoodVibe}
-            onChange={(e) => set("neighborhoodVibe", e.target.value as "" | EnumVibe)}
-          >
-            {VIBE_OPTIONS.map((v) => (
-              <option key={v || "blank"} value={v}>
-                {v === "" ? "Select…" : v}
-              </option>
-            ))}
-          </select>
+          <label className="text-sm font-medium" htmlFor="accessNotes">
+            Accessibility notes
+          </label>
+          <textarea
+            id="accessNotes"
+            className="mt-2 w-full min-h-24 rounded-md border px-3 py-2 text-sm"
+            value={form.accessNotes}
+            onChange={(e) => set("accessNotes", e.target.value)}
+            placeholder="Include measurements, number of steps, ramp details, door widths, or anything else a renter should know."
+          />
         </div>
-        <div>
-          <div className="text-sm font-medium">Area type</div>
-          <select
-            className="mt-2 block w-full rounded-md border px-3 py-2 text-sm"
-            value={form.areaType}
-            onChange={(e) => set("areaType", e.target.value as "" | EnumArea)}
-          >
-            {AREA_OPTIONS.map((v) => (
-              <option key={v || "blank"} value={v}>
-                {v === "" ? "Select…" : v}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      </section>
 
-      <div>
-        <div className="text-sm font-medium mb-2">Proximity (meters)</div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Input
-            placeholder="Bus"
-            inputMode="numeric"
-            value={form.distanceBusMeters}
-            onChange={(e) => set("distanceBusMeters", e.target.value)}
-          />
-          <Input
-            placeholder="Grocery"
-            inputMode="numeric"
-            value={form.distanceGroceryMeters}
-            onChange={(e) => set("distanceGroceryMeters", e.target.value)}
-          />
-          <Input
-            placeholder="School"
-            inputMode="numeric"
-            value={form.distanceSchoolMeters}
-            onChange={(e) => set("distanceSchoolMeters", e.target.value)}
-          />
-          <Input
-            placeholder="Park"
-            inputMode="numeric"
-            value={form.distanceParkMeters}
-            onChange={(e) => set("distanceParkMeters", e.target.value)}
-          />
-          <Input
-            placeholder="Pharmacy"
-            inputMode="numeric"
-            value={form.distancePharmacyMeters}
-            onChange={(e) => set("distancePharmacyMeters", e.target.value)}
-          />
-          <Input
-            placeholder="Gym"
-            inputMode="numeric"
-            value={form.distanceGymMeters}
-            onChange={(e) => set("distanceGymMeters", e.target.value)}
-          />
+      {/* Neighborhood & proximity */}
+      <section className="space-y-4 rounded-xl border bg-white px-4 py-4 sm:px-5 sm:py-5">
+        <div>
+          <h2 className="text-sm font-semibold">Neighborhood & surroundings</h2>
+          <p className="mt-1 text-xs text-gray-500">
+            Describe the vibe of the area and how close key places are.
+          </p>
         </div>
-        <p className="mt-1 text-xs text-gray-500">Leave blank for any you don’t know.</p>
-      </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <div className="text-sm font-medium">Neighborhood vibe</div>
+            <select
+              className="mt-2 block w-full rounded-md border px-3 py-2 text-sm"
+              value={form.neighborhoodVibe}
+              onChange={(e) =>
+                set("neighborhoodVibe", e.target.value as "" | EnumVibe)
+              }
+            >
+              {VIBE_OPTIONS.map((v) => (
+                <option key={v || "blank"} value={v}>
+                  {v === ""
+                    ? "Select…"
+                    : v === "QUIET"
+                    ? "Calm & quiet"
+                    : v}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <div className="text-sm font-medium">Area type</div>
+            <select
+              className="mt-2 block w-full rounded-md border px-3 py-2 text-sm"
+              value={form.areaType}
+              onChange={(e) =>
+                set("areaType", e.target.value as "" | EnumArea)
+              }
+            >
+              {AREA_OPTIONS.map((v) => (
+                <option key={v || "blank"} value={v}>
+                  {v === "" ? "Select…" : v}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 text-sm font-medium">Proximity (meters)</div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Input
+              placeholder="Bus"
+              inputMode="numeric"
+              value={form.distanceBusMeters}
+              onChange={(e) => set("distanceBusMeters", e.target.value)}
+            />
+            <Input
+              placeholder="Grocery"
+              inputMode="numeric"
+              value={form.distanceGroceryMeters}
+              onChange={(e) => set("distanceGroceryMeters", e.target.value)}
+            />
+            <Input
+              placeholder="School"
+              inputMode="numeric"
+              value={form.distanceSchoolMeters}
+              onChange={(e) => set("distanceSchoolMeters", e.target.value)}
+            />
+            <Input
+              placeholder="Park"
+              inputMode="numeric"
+              value={form.distanceParkMeters}
+              onChange={(e) => set("distanceParkMeters", e.target.value)}
+            />
+            <Input
+              placeholder="Pharmacy"
+              inputMode="numeric"
+              value={form.distancePharmacyMeters}
+              onChange={(e) =>
+                set("distancePharmacyMeters", e.target.value)
+              }
+            />
+            <Input
+              placeholder="Gym"
+              inputMode="numeric"
+              value={form.distanceGymMeters}
+              onChange={(e) => set("distanceGymMeters", e.target.value)}
+            />
+          </div>
+          <p className="mt-1 text-xs text-gray-500">
+            Leave blank for any you don’t know.
+          </p>
+        </div>
+      </section>
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={busy} className="rounded-full px-5">

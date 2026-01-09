@@ -49,7 +49,10 @@ export async function POST(req: Request) {
       .services(TWILIO_VERIFY_SERVICE_SID)
       .verifications.create({ to: phone, channel: "sms" });
 
-    return NextResponse.json({ ok: true, sid: v.sid, status: v.status });
+    // ...same imports and helpers as before (includes toE164)
+
+return NextResponse.json({ ok: true, sid: v.sid, status: v.status, to: phone });
+
   } catch (err: unknown) {
     const anyErr = err as { code?: number; status?: number; message?: string; moreInfo?: string };
     console.error("Twilio send error:", anyErr);

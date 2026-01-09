@@ -1,87 +1,109 @@
-// src/app/api/listings/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { requireSession } from "@/lib/auth";
+import { prisma as db } from "@/lib/db";
 
-// ---------- helpers ----------
-function toInt(v: unknown) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : undefined;
-}
-function asStringArray(v: unknown): string[] {
-  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-}
-
-function isObj(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
-}
-function getString(obj: unknown, key: string): string | null {
-  if (!isObj(obj)) return null;
-  const val = obj[key];
-  return typeof val === "string" ? val : null;
-}
-
-// Try to pull a user id from various possible session shapes without using `any`
-function extractUserId(session: unknown): string | null {
-  if (!isObj(session)) return null;
-
-  // { userId: "..." }
-  const userId = getString(session, "userId");
-  if (userId) return userId;
-
-  // { id: "..." }
-  const id = getString(session, "id");
-  if (id) return id;
-
-  // { user: { id: "..." } } or { user: { sub: "..." } }
-  const user = isObj(session.user) ? (session.user as Record<string, unknown>) : null;
-  if (user) {
-    const uid = getString(user, "id") ?? getString(user, "sub");
-    if (uid) return uid;
-  }
-
-  // { claims: { sub: "..." } }
-  const claims = isObj(session.claims) ? (session.claims as Record<string, unknown>) : null;
-  if (claims) {
-    const sub = getString(claims, "sub");
-    if (sub) return sub;
-  }
-
-  return null;
-}
-
-// ---------- route ----------
-export async function POST(req: Request) {
+/** GET: used by Review */
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
   try {
-    // Require auth; adapt to your helper's behavior
-    const session = await requireSession().catch(() => null);
-    const landlordId = extractUserId(session);
+    const { id } = await ctx.params;
 
-    if (!landlordId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const listing = await db.listing.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        houseRules: true,
+        city: true,
+        price: true,   // cents
+        beds: true,
+        baths: true,
+        insights: true,
+        // Prefer real photos table if you created it
+        photos: {
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+          select: { id: true, url: true, alt: true, sortOrder: true },
+        },
+        // Legacy fallbacks
+        images: true,
+        videos: true,
+        videoUrl: true,
+      },
+    });
+
+    if (!listing) return NextResponse.json({ message: "Not found" }, { status: 404 });
+
+    // Normalized insights from JSON blob
+    const ins = (listing.insights ?? {}) as Record<string, unknown>;
+    const neighborhoodNotes = typeof ins.neighborhoodNotes === "string" ? ins.neighborhoodNotes : null;
+    const transit           = typeof ins.transit           === "string" ? ins.transit           : null;
+    const amenities         = typeof ins.amenities         === "string" ? ins.amenities         : null;
+
+    // If no rows in ListingPhoto, fallback to legacy images JSON
+    let photos = listing.photos;
+    if (!photos || photos.length === 0) {
+      const imgs = Array.isArray(listing.images) ? listing.images as Array<string | { url: string; alt?: string | null; sortOrder?: number }> : [];
+      photos = imgs.map((img, i) => {
+        if (typeof img === "string") return { id: `legacy-${i}`, url: img, alt: null, sortOrder: i };
+        return {
+          id: `legacy-${i}`,
+          url: typeof img.url === "string" ? img.url : "",
+          alt: typeof img.alt === "string" ? img.alt : null,
+          sortOrder: typeof img.sortOrder === "number" ? img.sortOrder : i,
+        };
+      });
     }
 
-    const body = await req.json();
+    return NextResponse.json({
+      ...listing,
+      neighborhoodNotes,
+      transit,
+      amenities,
+      photos,
+    });
+  } catch {
+    return NextResponse.json({ message: "Server error" }, { status: 500 });
+  }
+}
 
-   const data = {
-      title: String(body.title ?? "Untitled").slice(0, 140),
-      city: String(body.city ?? "").slice(0, 80),
-      price: toInt(body.price) ?? 0,
-      beds: toInt(body.beds) ?? 0,
-      baths: toInt(body.baths) ?? 0,
-      description: String(body.description ?? ""),
-      images: asStringArray(body.images),     // array of relative paths like /uploads/xxx.jpg
-      videos: asStringArray(body.videos),     // NEW: array of /uploads/xxx.mp4
-      amenities: asStringArray(body.amenities),
-      videoUrl: null,                         // optional legacy field not used now
-      status: "APPROVED" as const,
-      landlordId,
-    };
+/** PATCH: persist Basics & Pricing fields */
+type PatchBody = Partial<{
+  title: string;
+  description: string | null;
+  houseRules: string | null;
+  city: string;
+  price: number; // cents
+  beds: number;
+  baths: number;
+}>;
 
-    const created = await prisma.listing.create({ data });
-    return NextResponse.json({ listing: created });
-  } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: "Failed to create listing" }, { status: 500 });
+export async function PATCH(
+  req: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await ctx.params;
+    const body = (await req.json()) as PatchBody;
+
+    const data: Record<string, unknown> = {};
+    if (typeof body.title === "string") data.title = body.title.trim();
+    if (typeof body.description === "string" || body.description === null) data.description = body.description ?? null;
+    if (typeof body.houseRules === "string" || body.houseRules === null) data.houseRules = body.houseRules ?? null;
+    if (typeof body.city === "string") data.city = body.city.trim();
+    if (typeof body.price === "number") data.price = Math.max(0, Math.floor(body.price)); // keep as cents
+    if (typeof body.beds === "number") data.beds = Math.max(0, Math.floor(body.beds));
+    if (typeof body.baths === "number") data.baths = Math.max(0, Math.floor(body.baths));
+
+    const updated = await db.listing.update({
+      where: { id },
+      data,
+      select: { id: true },
+    });
+
+    return NextResponse.json({ ok: true, id: updated.id });
+  } catch {
+    return NextResponse.json({ message: "Failed to update" }, { status: 500 });
   }
 }

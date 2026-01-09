@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import SearchBar from "@/components/SearchBar";
 import { usePathname } from "next/navigation";
@@ -15,30 +15,78 @@ import {
   FiLogIn,
   FiUserPlus,
   FiHome,
-  FiCalendar, // NEW
+  FiCalendar,
+  FiCheckCircle,
 } from "react-icons/fi";
 import type { $Enums } from "@prisma/client";
 
-type Me = { email: string; role?: $Enums.Role };
+type Me = { email: string; role?: $Enums.Role } | null;
+type VerificationStatus = "UNAUTHENTICATED" | "UNVERIFIED" | "PENDING" | "VERIFIED" | "REJECTED";
 
 export default function Header() {
   const pathname = usePathname();
   const showCenteredSearch = pathname === "/";
 
-  const [me, setMe] = useState<Me | null>(null);
+  const [me, setMe] = useState<Me>(null);
+  const [vStatus, setVStatus] = useState<VerificationStatus>("UNAUTHENTICATED");
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
 
+  // Derived UI flags
+  const isLoggedIn = !!me;
+  const showAdmin = useMemo(() => me?.role === "ADMIN", [me]); // role-only
+  const isHost = (me?.role === "LANDLORD") || showAdmin;
+
+  // CTA
+  const ctaLabel = vStatus === "VERIFIED" ? "Post a listing" : "Become a Landlord";
+  const ctaHref = vStatus === "VERIFIED" ? "/landlord/new/basics" : "/landlord/verify";
+
+  // Fetch auth + verification status (no-store, include cookies)
+  async function loadMe() {
+    setLoading(true);
+    try {
+      const [meRes, vRes] = await Promise.all([
+        fetch("/api/auth/me", { method: "GET", cache: "no-store", credentials: "include" }),
+        fetch("/api/me/verification-status", { method: "GET", cache: "no-store", credentials: "include" }),
+      ]);
+
+      let user: Me = null;
+      if (meRes.ok) {
+        const d = await meRes.json().catch(() => ({}));
+        user = d?.user ?? null;
+      }
+
+      let status: VerificationStatus = "UNAUTHENTICATED";
+      if (vRes.ok) {
+        const d = await vRes.json().catch(() => ({}));
+        status = (d?.status as VerificationStatus) ?? (user ? "UNVERIFIED" : "UNAUTHENTICATED");
+      } else {
+        status = user ? "UNVERIFIED" : "UNAUTHENTICATED";
+      }
+
+      setMe(user);
+      setVStatus(status);
+    } catch {
+      setMe(null);
+      setVStatus("UNAUTHENTICATED");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    let mounted = true;
-    fetch("/api/auth/me")
-      .then((r) => r.json())
-      .then((d) => mounted && setMe(d?.user ?? null))
-      .catch(() => mounted && setMe(null))
-      .finally(() => mounted && setLoading(false));
-    return () => {
-      mounted = false;
+    loadMe();
+    const onFocus = () => loadMe();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "homeiq_auth_changed") loadMe();
     };
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("storage", onStorage);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Close the hamburger when navigating
@@ -46,14 +94,15 @@ export default function Header() {
     setMenuOpen(false);
   }, [pathname]);
 
-  const isLoggedIn = !!me;
-  const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL?.toLowerCase() ?? "";
-  const showAdmin = me?.role === "ADMIN" || me?.email?.toLowerCase() === adminEmail;
-  const isHost = me?.role === "LANDLORD" || showAdmin; // NEW
-
   const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/"; // hard refresh to clear client state
+    try {
+      await fetch("/api/auth/logout", { method: "POST", cache: "no-store", credentials: "include" });
+    } finally {
+      try {
+        localStorage.setItem("homeiq_auth_changed", Math.random().toString());
+      } catch {}
+      window.location.href = "/";
+    }
   };
 
   return (
@@ -74,17 +123,24 @@ export default function Header() {
 
         {/* Right-side quick actions */}
         <nav className="ml-auto flex items-center gap-3">
-          {/* Become a Landlord (visible always; gated server-side later) */}
+          {/* Identity-gated landlord CTA (always visible) */}
           <Link
-            href="/host"
+            href={ctaHref}
             className="hidden sm:inline-flex items-center gap-2 text-sm font-medium hover:underline"
+            title={ctaLabel}
           >
             <FiHome className="h-4 w-4" />
-            Become a Landlord
+            {ctaLabel}
+            {!loading && vStatus === "VERIFIED" && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600">
+                <FiCheckCircle className="h-3 w-3" />
+                Verified
+              </span>
+            )}
           </Link>
 
-          {/* NEW: Quick Viewings shortcut for hosts (desktop) */}
-          {isHost && (
+          {/* Quick Viewings shortcut for hosts (desktop) */}
+          {!loading && isHost && (
             <Link
               href="/host/viewings"
               className="hidden sm:inline-flex items-center gap-2 text-sm font-medium hover:underline"
@@ -96,7 +152,7 @@ export default function Header() {
           )}
 
           {/* Renter: My Viewings (desktop) */}
-          {isLoggedIn && (
+          {!loading && isLoggedIn && (
             <Link
               href="/viewings"
               className="hidden sm:inline-flex items-center gap-2 text-sm font-medium hover:underline"
@@ -130,8 +186,8 @@ export default function Header() {
             <FiBell className="h-5 w-5" />
           </button>
 
-          {/* Auth quick actions (desktop) */}
-          {isLoggedIn ? (
+          {/* Auth quick actions (desktop). Hide until we know. */}
+          {!loading && (isLoggedIn ? (
             <Link
               aria-label="Profile"
               href="/account"
@@ -145,19 +201,25 @@ export default function Header() {
               <Link
                 href="/auth/login"
                 className="text-sm rounded-full border px-3 py-1.5 hover:bg-gray-50"
+                onClick={() => {
+                  try { localStorage.setItem("homeiq_auth_changed", Math.random().toString()); } catch {}
+                }}
               >
                 Log in
               </Link>
               <Link
                 href="/auth/register"
                 className="text-sm rounded-full border px-3 py-1.5 hover:bg-gray-50"
+                onClick={() => {
+                  try { localStorage.setItem("homeiq_auth_changed", Math.random().toString()); } catch {}
+                }}
               >
                 Register
               </Link>
             </div>
-          )}
+          ))}
 
-          {/* Hamburger menu (Admin & Host live here) */}
+          {/* Hamburger menu */}
           <div className="relative">
             <button
               type="button"
@@ -177,7 +239,7 @@ export default function Header() {
                 className="absolute right-0 mt-2 w-64 rounded-xl border bg-white shadow-lg ring-1 ring-black/5 p-2"
               >
                 {/* Signed-in section */}
-                {isLoggedIn ? (
+                {!loading && isLoggedIn ? (
                   <>
                     <div className="px-3 py-2 text-xs text-gray-500">
                       Signed in as <span className="font-medium">{me?.email}</span>
@@ -186,7 +248,7 @@ export default function Header() {
                     {/* Admin Center (only if allowed) */}
                     {showAdmin && (
                       <Link
-                        href="/admin"
+                        href="/admin/listings"
                         role="menuitem"
                         className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50"
                         onClick={() => setMenuOpen(false)}
@@ -206,7 +268,23 @@ export default function Header() {
                       <span>Account</span>
                     </Link>
 
-                    {/* NEW: Host links */}
+                    {/* Landlord CTA inside menu */}
+                    <Link
+                      href={ctaHref}
+                      role="menuitem"
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50"
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <FiHome className="h-4 w-4" />
+                      <span>{ctaLabel}</span>
+                      {vStatus === "VERIFIED" && (
+                        <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-emerald-600">
+                          <FiCheckCircle className="h-3 w-3" />
+                          Verified
+                        </span>
+                      )}
+                    </Link>
+
                     {isHost && (
                       <>
                         <div className="mt-2 px-3 py-1 text-xs text-gray-500">Host</div>
@@ -243,26 +321,41 @@ export default function Header() {
                     </button>
                   </>
                 ) : (
-                  // Signed-out section
+                  // Signed-out section (or still loading => show nothing else)
                   <>
                     <Link
-                      href="/auth/login"
+                      href={ctaHref}
                       role="menuitem"
                       className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50"
                       onClick={() => setMenuOpen(false)}
                     >
-                      <FiLogIn className="h-4 w-4" />
-                      <span>Log in</span>
+                      <FiHome className="h-4 w-4" />
+                      <span>{ctaLabel}</span>
                     </Link>
-                    <Link
-                      href="/auth/register"
-                      role="menuitem"
-                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50"
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      <FiUserPlus className="h-4 w-4" />
-                      <span>Register</span>
-                    </Link>
+
+                    {!loading && (
+                      <>
+                        <div className="my-2 h-px bg-gray-100" />
+                        <Link
+                          href="/auth/login"
+                          role="menuitem"
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50"
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          <FiLogIn className="h-4 w-4" />
+                          <span>Log in</span>
+                        </Link>
+                        <Link
+                          href="/auth/register"
+                          role="menuitem"
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50"
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          <FiUserPlus className="h-4 w-4" />
+                          <span>Register</span>
+                        </Link>
+                      </>
+                    )}
                   </>
                 )}
               </div>

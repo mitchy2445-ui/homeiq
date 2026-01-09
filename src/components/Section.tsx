@@ -1,4 +1,3 @@
-// src/components/Section.tsx
 "use client";
 
 import React, { useRef, useCallback } from "react";
@@ -9,20 +8,27 @@ import type { ListingCardProps } from "./ListingCard";
 
 export type SectionProps = {
   title: string;
-  href?: string; // optional "See all" link
+  href?: string;
   listings: ListingCardProps[];
   className?: string;
 };
 
-export default function Section({ title, href, listings, className }: SectionProps) {
+export default function Section({
+  title,
+  href,
+  listings,
+  className,
+}: SectionProps) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   const scrollByCards = useCallback((dir: 1 | -1) => {
     const el = scrollerRef.current;
     if (!el) return;
+
     const firstCard = el.querySelector<HTMLElement>("a, [data-card]");
-    const fallback = Math.min(el.clientWidth * 0.85, 480);
+    const fallback = Math.min(el.clientWidth * 0.85, 280);
     const delta = firstCard?.clientWidth ?? fallback;
+
     el.scrollBy({ left: dir * (delta + 16), behavior: "smooth" });
   }, []);
 
@@ -30,8 +36,12 @@ export default function Section({ title, href, listings, className }: SectionPro
 
   return (
     <section className={["space-y-3", className].filter(Boolean).join(" ")}>
+      {/* Header */}
       <div className="flex items-end justify-between gap-3">
-        <h2 className="text-lg font-semibold text-gray-900 sm:text-xl">{title}</h2>
+        <h2 className="text-lg font-semibold text-gray-900 sm:text-xl">
+          {title}
+        </h2>
+
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -41,6 +51,7 @@ export default function Section({ title, href, listings, className }: SectionPro
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
+
           <button
             type="button"
             aria-label="Scroll right"
@@ -49,29 +60,44 @@ export default function Section({ title, href, listings, className }: SectionPro
           >
             <ChevronRight className="h-4 w-4" />
           </button>
-          {href ? (
+
+          {href && (
             <Link
               href={href}
               className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
             >
               See all
             </Link>
-          ) : null}
+          )}
         </div>
       </div>
 
+      {/* Carousel */}
       <div
         ref={scrollerRef}
         className="scroll-container -mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2"
       >
-        {listings.map((l) => (
-          <ListingCard key={String(l.id)} {...l} />
-        ))}
+        {listings.map((item, index) => {
+          const key =
+            "listing" in item
+              ? item.listing.id
+              : item.id ?? `fallback-${index}`;
+
+          return (
+            <div
+              key={key}
+              className="snap-start shrink-0 w-[280px]"
+            >
+              <ListingCard {...item} />
+            </div>
+          );
+        })}
       </div>
 
+      {/* Hide scrollbar */}
       <style jsx>{`
         .scroll-container {
-          scrollbar-width: none; /* Firefox */
+          scrollbar-width: none;
           -webkit-overflow-scrolling: touch;
           scroll-behavior: smooth;
         }
