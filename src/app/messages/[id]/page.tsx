@@ -179,12 +179,18 @@ export default async function ThreadPage({
             No messages yet. Say hello 👋
           </p>
         ) : (
-          <MessageList
-            messages={convo.messages}
-            me={s.sub}
-            otherLastReadAt={convo.participants[0]?.lastReadAt ?? null}
-          />
+         <MessageList
+  messages={convo.messages}
+  me={s.sub}
+  otherLastReadAt={convo.participants[0]?.lastReadAt ?? null}
+  conversationId={params.id}
+/>
+
+          
         )}
+       <TypingIndicator conversationId={params.id} />
+
+
       </div>
 
       {/* Quick replies */}
@@ -214,14 +220,27 @@ export default async function ThreadPage({
           pb-[env(safe-area-inset-bottom)]
         "
       >
-        <input
+       <input
   name="text"
   placeholder="Write a message…"
   className="flex-1 rounded-xl border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-600"
   autoComplete="off"
-  onChange={() => setTyping(true)}
-  onBlur={() => setTyping(false)}
+  onFocus={() => {
+    fetch(`/api/messages/${params.id}/typing`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isTyping: true }),
+    });
+  }}
+  onBlur={() => {
+    fetch(`/api/messages/${params.id}/typing`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isTyping: false }),
+    });
+  }}
 />
+
 
 
         <button
