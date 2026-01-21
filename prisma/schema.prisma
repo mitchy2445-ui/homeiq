@@ -103,8 +103,8 @@ model User {
   // ✅ FIXED: named relation matches ConversationParticipant
   conversationMemberships ConversationParticipant[] @relation("ConversationMembers")
 
-  sentMessages  Message[]  @relation("UserMessages")
-  favorites     Favorite[]
+  sentMessages Message[]  @relation("UserMessages")
+  favorites    Favorite[]
 
   renterViewingRequests   ViewingRequest[] @relation("RenterViewingRequests")
   landlordViewingRequests ViewingRequest[] @relation("LandlordViewingRequests")
@@ -157,6 +157,7 @@ model Listing {
   title       String
   description String?
   houseRules  String?
+  
 
   street   String
   aptUnit  String?
@@ -167,11 +168,11 @@ model Listing {
 
   price  Int
   beds   Int
-  baths Int
+  baths  Int
   status Status @default(DRAFT)
 
   images   Json?
-  videos  Json?
+  videos   Json?
   videoUrl String?
   photos   ListingPhoto[]
 
@@ -200,7 +201,7 @@ model Listing {
   maxOccupants      Int?
   smokingAllowed    Boolean?
 
-  depositCents Int?
+  depositCents  Int?
   availableFrom DateTime?
 
   idealRenterSummary String?
@@ -218,7 +219,7 @@ model Listing {
   transit           String?
   amenities         String?
 
-  conversations   Conversation[] @relation("ListingConversations")
+  conversations   Conversation[]   @relation("ListingConversations")
   favoritedBy     Favorite[]
   viewingRequests ViewingRequest[]
 
@@ -233,17 +234,17 @@ model ListingPhoto {
 
   url       String
   alt       String?
-  sortOrder Int @default(0)
+  sortOrder Int     @default(0)
 
   createdAt DateTime @default(now())
 }
 
 model Conversation {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   listingId     String?
-  listing       Listing? @relation("ListingConversations", fields: [listingId], references: [id], onDelete: SetNull)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  listing       Listing?  @relation("ListingConversations", fields: [listingId], references: [id], onDelete: SetNull)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   lastMessageAt DateTime?
 
   participants ConversationParticipant[]
@@ -254,16 +255,10 @@ model ConversationParticipant {
   conversationId String
   userId         String
   lastReadAt     DateTime?
-  isTyping       Boolean @default(false)
+  isTyping       Boolean   @default(false)
 
   conversation Conversation @relation(fields: [conversationId], references: [id])
-
-  // ✅ FIXED: relation name matches User model
-  user User @relation(
-    "ConversationMembers",
-    fields: [userId],
-    references: [id]
-  )
+  user         User         @relation("ConversationMembers", fields: [userId], references: [id])
 
   @@id([conversationId, userId])
 }
