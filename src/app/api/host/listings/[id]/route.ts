@@ -4,9 +4,6 @@ import { getSessionFromCookie } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
-/* ----------------------------------------------------------
-   Utility types
----------------------------------------------------------- */
 type Json =
   | null
   | boolean
@@ -15,9 +12,6 @@ type Json =
   | Json[]
   | { [k: string]: Json };
 
-/* ----------------------------------------------------------
-   Helpers
----------------------------------------------------------- */
 function toNullableEnum<T extends string>(
   v: unknown,
   allowed: readonly T[]
@@ -55,153 +49,109 @@ function isJson(x: unknown): x is Json {
   return false;
 }
 
-/* ----------------------------------------------------------
-   GET
----------------------------------------------------------- */
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSessionFromCookie();
-  if (!session)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const session = await getSessionFromCookie();
+    if (!session)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { id } = await params;
+    const { id } = await params;
 
-  const listing = await db.listing.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      landlordId: true,
-      status: true,
-
-      // basics
-      title: true,
-      description: true,
-      houseRules: true,
-      street: true,
-      aptUnit: true, // <-- FIXED (previously missing)
-      city: true,
-      province: true,
-      postal: true,
-      price: true,
-      beds: true,
-      baths: true,
-
-      propertyType: true,
-      availableFrom: true,
-      depositCents: true,
-      utilitiesIncluded: true,
-      maxOccupants: true,
-      minLeaseMonths: true,
-      furnished: true,
-
-      preferredTenantType: true,
-      idealRenterSummary: true,
-      petSummary: true,
-      parkingSummary: true,
-      laundrySummary: true,
-
-      // enums
-      laundry: true,
-      parkingType: true,
-      petPolicy: true,
-      neighborhoodVibe: true,
-      areaType: true,
-      smokingAllowed: true,
-      heating: true,
-      cooling: true,
-      accessibility: true,
-
-      // notes
-      noiseLevel: true,
-      naturalLight: true,
-      interiorNotes: true,
-      buildingAmenitiesNotes: true,
-      rulesNotes: true,
-
-      // proximities
-      distanceBusMeters: true,
-      distanceGroceryMeters: true,
-      distanceSchoolMeters: true,
-      distanceParkMeters: true,
-      distancePharmacyMeters: true,
-      distanceGymMeters: true,
-
-      distanceRestaurantsMeters: true,
-      distanceShoppingMeters: true,
-      distanceUniversityMeters: true,
-      distanceNightlifeMeters: true,
-
-      // insights
-      neighborhoodSafety: true,
-      neighborhoodWalkability: true,
-      neighborhoodCommunity: true,
-      neighborhoodNoise: true,
-      neighborhoodHighlights: true,
-      neighborhoodTransitNotes: true,
-
-      // media
-      videoUrl: true,
-      images: true,
-
-      photos: {
-        orderBy: { sortOrder: "asc" },
-        select: { id: true, url: true, alt: true, sortOrder: true },
+    const listing = await db.listing.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        landlordId: true,
+        status: true,
+        title: true,
+        description: true,
+        houseRules: true,
+        street: true,
+        aptUnit: true,
+        city: true,
+        province: true,
+        postal: true,
+        country: true,
+        priceCents: true,
+        beds: true,
+        baths: true,
+        propertyType: true,
+        availableFrom: true,
+        depositCents: true,
+        utilitiesIncluded: true,
+        maxOccupants: true,
+        minLeaseMonths: true,
+        furnished: true,
+        idealRenterSummary: true,
+        petSummary: true,
+        parkingSummary: true,
+        laundrySummary: true,
+        neighborhoodSafety: true,
+        neighborhoodWalkability: true,
+        neighborhoodCommunity: true,
+        neighborhoodNoise: true,
+        neighborhoodHighlights: true,
+        neighborhoodTransitNotes: true,
+        distanceBusMeters: true,
+        distanceGroceryMeters: true,
+        distanceSchoolMeters: true,
+        distanceParkMeters: true,
+        distancePharmacyMeters: true,
+        distanceGymMeters: true,
+        accessibility: true,
+        videoUrl: true,
+        images: true,
+        photos: {
+          orderBy: { sortOrder: "asc" },
+          select: { id: true, url: true, alt: true, sortOrder: true },
+        },
       },
-    },
-  });
+    });
 
-  if (!listing)
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!listing)
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const me = await db.user.findUnique({
-    where: { id: session.sub },
-    select: { role: true },
-  });
+    const me = await db.user.findUnique({
+      where: { id: session.sub },
+      select: { role: true },
+    });
 
-  const isAdmin = me?.role === "ADMIN";
-  if (!isAdmin && listing.landlordId !== session.sub) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const isAdmin = me?.role === "ADMIN";
+    if (!isAdmin && listing.landlordId !== session.sub) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    let photos = listing.photos ?? [];
+
+    if (photos.length === 0 && Array.isArray(listing.images)) {
+      const urls = listing.images.filter(
+        (v): v is string => typeof v === "string"
+      );
+
+      photos = urls.map((url, index) => ({
+        id: `legacy-${index}`,
+        url,
+        alt: null,
+        sortOrder: index,
+      }));
+    }
+
+    const { images: _legacy, ...rest } = listing;
+    void _legacy;
+
+    return NextResponse.json({
+      ...rest,
+      photos,
+    });
+  } catch (err) {
+    console.error("GET /api/host/listings/[id] error:", err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
-
-  // fallback for legacy images
-  let photos = listing.photos;
-
-  if ((!photos || photos.length === 0) && Array.isArray(listing.images)) {
-    const urls = listing.images.filter(
-      (v): v is string => typeof v === "string"
-    );
-
-    photos = urls.map((url, index) => ({
-      id: `legacy-${index}`,
-      url,
-      alt: null,
-      sortOrder: index,
-    }));
-  }
-
- const { images: _legacy, photos: _oldPhotos, ...rest } = listing;
-
-return NextResponse.json({
-  ...rest,
-
-  // ✅ ADAPTER — DOES NOT TOUCH DB OR PATCH
-  neighborhoodInsights: {
-    overview: rest.neighborhoodHighlights,
-    notes: rest.neighborhoodCommunity,
-    transit: rest.neighborhoodTransitNotes,
-    amenities: rest.neighborhoodWalkability,
-  },
-
-  photos,
-});
-
 }
 
-/* ----------------------------------------------------------
-   PATCH — UPDATED WITH SUMMARY FIXES + APTUNIT
----------------------------------------------------------- */
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -236,51 +186,43 @@ export async function PATCH(
 
     const data: Record<string, unknown> = {};
 
-    /* ---------------------------- Strings ---------------------------- */
-   const stringFields = [
-  "title",
-  "description",
-  "houseRules",
-  "street",
-  "aptUnit",
-  "city",
-  "province",
-  "postal",
-  "propertyType",
-
-  // comfort & environment
-  "heating",
-  "cooling",
-  "noiseLevel",
-  "naturalLight",
-
-  // interior / building
-  "interiorNotes",
-  "buildingAmenitiesNotes",
-  "rulesNotes",
-
-  // neighborhood insights (THIS IS THE FIX)
-  "neighborhoodNotes",
-  "transit",
-  "amenities",
-
-  // structured neighborhood fields
-  "neighborhoodSafety",
-  "neighborhoodWalkability",
-  "neighborhoodCommunity",
-  "neighborhoodNoise",
-  "neighborhoodHighlights",
-  "neighborhoodTransitNotes",
-
-  "videoUrl",
-  "preferredTenantType",
-] as const;
+    const stringFields = [
+      "title",
+      "description",
+      "houseRules",
+      "street",
+      "aptUnit",
+      "city",
+      "province",
+      "postal",
+      "propertyType",
+      "heating",
+      "cooling",
+      "noiseLevel",
+      "naturalLight",
+      "interiorNotes",
+      "buildingAmenitiesNotes",
+      "rulesNotes",
+      "neighborhoodNotes",
+      "neighborhoodTransitNotes",
+      "videoUrl",
+    ] as const;
 
     for (const key of stringFields) {
       if (key in body) data[key] = toNullableTrimmed(body[key]);
     }
 
-    /* ---------------------------- Enums ---------------------------- */
+    if ("status" in body) {
+      const status = toNullableEnum(body.status, [
+        "DRAFT",
+        "PENDING",
+        "ACTIVE",
+        "PAUSED",
+        "INACTIVE"
+      ]);
+      if (status) data.status = status;
+    }
+
     const petPolicy = toNullableEnum(body.petPolicy, [
       "NONE",
       "CATS",
@@ -301,11 +243,9 @@ export async function PATCH(
       "NONE",
     ]);
 
-    data.petPolicy = petPolicy;
-    data.parkingType = parkingType;
-    data.laundry = laundry;
-
-    /* ---------------------------- Generate Summaries ---------------------------- */
+    if ("petPolicy" in body) data.petPolicy = petPolicy;
+    if ("parkingType" in body) data.parkingType = parkingType;
+    if ("laundry" in body) data.laundry = laundry;
 
     if ("preferredTenantType" in body) {
       const v = toNullableTrimmed(body.preferredTenantType);
@@ -351,12 +291,15 @@ export async function PATCH(
           : "Laundry TBD.";
     }
 
-    /* ---------------------------- Numbers ---------------------------- */
+    if ("price" in body && body.price != null) {
+      const n = Number(body.price);
+      data.priceCents = Number.isFinite(n) ? Math.round(n * 100) : null;
+    }
+
     const cap = { min: 0, max: 100_000 };
     const numericFields = [
       "beds",
       "baths",
-      "price",
       "maxOccupants",
       "minLeaseMonths",
       "depositCents",
@@ -366,17 +309,12 @@ export async function PATCH(
       "distanceParkMeters",
       "distancePharmacyMeters",
       "distanceGymMeters",
-      "distanceRestaurantsMeters",
-      "distanceShoppingMeters",
-      "distanceUniversityMeters",
-      "distanceNightlifeMeters",
     ] as const;
 
     for (const key of numericFields) {
       if (key in body) data[key] = toNullableInt(body[key], cap);
     }
 
-    /* ---------------------------- Dates ---------------------------- */
     if ("availableFrom" in body) {
       const rawDate = body.availableFrom;
       if (!rawDate) data.availableFrom = null;
@@ -386,7 +324,6 @@ export async function PATCH(
       }
     }
 
-    /* ---------------------------- JSON ---------------------------- */
     if ("utilitiesIncluded" in body) {
       data.utilitiesIncluded = isJson(body.utilitiesIncluded)
         ? body.utilitiesIncluded

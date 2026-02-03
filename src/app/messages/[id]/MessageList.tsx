@@ -2,30 +2,35 @@
 
 import { useEffect, useRef } from "react";
 
+type MsgStatus = "sending" | "sent" | "failed";
+
 type Msg = {
   id: string;
   body: string;
   senderId: string;
-  createdAt: Date;
+  createdAt: Date | string; // supports server + client
+  status?: MsgStatus;
 };
 
 export default function MessageList({
   messages,
   me,
   otherLastReadAt,
+  onRetry,
 }: {
   messages: Msg[];
   me: string;
   otherLastReadAt?: Date | null;
+  onRetry?: (msg: Msg) => void;
 }) {
   const endRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-scroll on load + new messages
+  // Auto-scroll to latest message
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
-  // ✅ Find the LAST message sent by ME
+  // Find last message sent by me
   const lastMyMessage = [...messages]
     .reverse()
     .find((m) => m.senderId === me);
@@ -37,13 +42,27 @@ export default function MessageList({
         const prev = messages[i - 1];
         const showTime = !prev || prev.senderId !== m.senderId;
 
-        const isLastOutgoing =
-          mine && lastMyMessage?.id === m.id;
+        // ✅ SAFELY normalize createdAt
+        const createdAt =
+          m.createdAt instanceof Date
+            ? m.createdAt
+            : new Date(m.createdAt);
+
+        const isLastOutgoing = mine && lastMyMessage?.id === m.id;
 
         const seen =
           isLastOutgoing &&
-          otherLastReadAt &&
-          otherLastReadAt >= m.createdAt;
+          otherLastReadAt instanceof Date &&
+          otherLastReadAt >= createdAt;
+
+        // Message receipt text
+        let receipt: string | null = null;
+        if (isLastOutgoing) {
+          if (m.status === "sending") receipt = "Sending…";
+          else if (m.status === "failed") receipt = null;
+          else if (seen) receipt = "Seen";
+          else receipt = "Sent";
+        }
 
         return (
           <li
@@ -54,26 +73,43 @@ export default function MessageList({
               <div
                 className={`rounded-2xl px-4 py-2 text-sm ${
                   mine
-                    ? "bg-emerald-600 text-white"
+                    ? m.status === "failed"
+                      ? "bg-red-100 text-red-700"
+                      : "bg-emerald-600 text-white"
                     : "bg-gray-100"
                 }`}
               >
                 {m.body}
+
+                {/* Retry failed message */}
+                {mine && m.status === "failed" && (
+                  <button
+                    onClick={() => onRetry?.(m)}
+                    className="mt-1 block text-[11px] text-red-600 hover:underline"
+                  >
+                    Failed to send · Retry
+                  </button>
+                )}
               </div>
 
+              {/* Timestamp */}
               {showTime && (
                 <div
                   className={`mt-1 text-[11px] text-gray-400 ${
                     mine ? "text-right" : "text-left"
                   }`}
                 >
-                  {m.createdAt.toLocaleString()}
+                  {createdAt.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </div>
               )}
 
-              {seen && (
+              {/* Read / Sent receipt */}
+              {receipt && (
                 <div className="mt-0.5 text-[11px] text-gray-400 text-right">
-                  Seen
+                  {receipt}
                 </div>
               )}
             </div>

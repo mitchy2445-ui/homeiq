@@ -1,4 +1,3 @@
-// src/app/landlord/new/review/page.tsx
 "use client";
 
 import * as React from "react";
@@ -8,7 +7,10 @@ import { prevPath } from "@/lib/listingWizard";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 
-// ---------- TYPES MATCHING GET /api/host/listings/[id] ----------
+/* ----------------------------------------------------------
+   Types (MATCH API RESPONSE EXACTLY)
+---------------------------------------------------------- */
+
 type ReviewPhoto = {
   id: string;
   url: string;
@@ -17,39 +19,38 @@ type ReviewPhoto = {
 };
 
 type ReviewUtilities = {
-  included: string[];
-  notIncluded: string[];
+  included?: string[];
+  notIncluded?: string[];
 };
 
 type ReviewListing = {
   id: string;
+
   title: string;
   street: string;
   aptUnit: string | null;
   city: string;
   province: string;
   postal: string;
-  price: number;
+
+  priceCents: number;
   beds: number;
   baths: number;
+
   propertyType: string | null;
   availableFrom: string | null;
-
   furnished: boolean | null;
 
-  // summaries
+  description: string | null;
+
   idealRenterSummary: string | null;
   petSummary: string | null;
   parkingSummary: string | null;
   laundrySummary: string | null;
 
-  // utilities
   utilitiesIncluded: ReviewUtilities | null;
 
-  // description
-  description: string;
-
-  // neighborhood insights
+  /* ✅ Neighborhood Insights */
   neighborhoodSafety: string | null;
   neighborhoodWalkability: string | null;
   neighborhoodCommunity: string | null;
@@ -60,33 +61,36 @@ type ReviewListing = {
   photos: ReviewPhoto[];
 };
 
+/* ----------------------------------------------------------
+   Component
+---------------------------------------------------------- */
+
 export default function ReviewPage() {
   const router = useRouter();
   const params = useSearchParams();
-
   const id = params.get("id");
 
-  const [data, setData] = React.useState<ReviewListing | null>(null);
+  const [listing, setListing] = React.useState<ReviewListing | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState("");
 
-  // ---------------------- LOAD LISTING ----------------------
+  /* ----------------------------------------------------------
+     Load listing
+  ---------------------------------------------------------- */
   React.useEffect(() => {
     if (!id) return;
 
     async function load() {
       const res = await fetch(`/api/host/listings/${id}`, {
-        method: "GET",
         credentials: "include",
       });
 
       const body = await res.json();
-
       if (!res.ok) {
         setError(body.error || "Failed to load listing.");
       } else {
-        setData(body as ReviewListing);
+        setListing(body as ReviewListing);
       }
       setLoading(false);
     }
@@ -94,8 +98,11 @@ export default function ReviewPage() {
     load();
   }, [id]);
 
-  // ---------------------- PUBLISH LISTING ----------------------
+  /* ----------------------------------------------------------
+     Publish
+  ---------------------------------------------------------- */
   async function onPublish() {
+    if (!id) return;
     setSaving(true);
 
     const res = await fetch(`/api/host/listings/${id}`, {
@@ -108,201 +115,124 @@ export default function ReviewPage() {
     const body = await res.json();
     setSaving(false);
 
-    if (!res.ok) return setError(body.error || "Unable to publish.");
+    if (!res.ok) {
+      setError(body.error || "Unable to publish.");
+      return;
+    }
 
     router.replace("/landlord/listings");
   }
 
-  if (loading)
+  /* ----------------------------------------------------------
+     States
+  ---------------------------------------------------------- */
+  if (loading) {
     return (
       <main className="p-6">
         <p className="text-gray-600">Loading…</p>
       </main>
     );
+  }
 
-  if (error || !data)
+  if (!listing || error) {
     return (
       <main className="p-6">
-        <p className="text-red-600">{error || "Error loading listing."}</p>
+        <p className="text-red-600">{error || "Listing not found."}</p>
       </main>
     );
+  }
 
-  const listing = data;
-
-  // ------------------------------------------------------------
-  // RENDER PAGE
-  // ------------------------------------------------------------
+  /* ----------------------------------------------------------
+     Render
+  ---------------------------------------------------------- */
   return (
     <main className="mx-auto max-w-4xl p-6 space-y-8">
-      {/* HEADER */}
-      <div>
-        <h1 className="text-2xl font-semibold mb-1">Review your listing</h1>
-        <p className="text-gray-600 text-sm">
-          Make sure everything looks correct before publishing.
+      <header>
+        <h1 className="text-2xl font-semibold">Review & publish</h1>
+        <p className="text-sm text-gray-600">
+          Confirm all details before publishing your listing.
         </p>
-      </div>
+      </header>
 
-      <Progress value={100} className="w-full" />
+      <Progress value={100} />
 
-      {/* ---------------------- PHOTOS ---------------------- */}
-      <section className="space-y-3">
-        <h2 className="text-xl font-semibold">Photos</h2>
-
-        {listing.photos.length === 0 && (
-          <p className="text-gray-600 text-sm">No photos uploaded.</p>
+      {/* Photos */}
+      <section>
+        <h2 className="text-xl font-semibold mb-3">Photos</h2>
+        {listing.photos.length === 0 ? (
+          <p className="text-sm text-gray-600">No photos uploaded.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            {listing.photos.map((p) => (
+              <div key={p.id} className="relative h-32 rounded overflow-hidden">
+                <Image src={p.url} alt={p.alt ?? ""} fill className="object-cover" />
+              </div>
+            ))}
+          </div>
         )}
+      </section>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          {listing.photos.map((p) => (
+      {/* Basics */}
+      <section>
+        <h2 className="text-xl font-semibold mb-2">Basics</h2>
+        <div className="text-sm text-gray-700 space-y-1">
+          <p><strong>Title:</strong> {listing.title}</p>
+          <p>
+            <strong>Address:</strong>{" "}
+            {listing.street}
+            {listing.aptUnit ? `, #${listing.aptUnit}` : ""},{" "}
+            {listing.city}, {listing.province}, {listing.postal}
+          </p>
+          <p><strong>Beds:</strong> {listing.beds}</p>
+          <p><strong>Baths:</strong> {listing.baths}</p>
+          <p>
+            <strong>Monthly price:</strong>{" "}
+            {listing.priceCents > 0 ? `$${(listing.priceCents / 100).toFixed(2)}` : "—"}
+          </p>
+        </div>
+      </section>
+
+      {/* Summaries */}
+      <section>
+        <h2 className="text-xl font-semibold mb-2">Summaries</h2>
+        <div className="text-sm space-y-1">
+          <p><strong>Ideal renter:</strong> {listing.idealRenterSummary || "—"}</p>
+          <p><strong>Pets:</strong> {listing.petSummary || "—"}</p>
+          <p><strong>Parking:</strong> {listing.parkingSummary || "—"}</p>
+          <p><strong>Laundry:</strong> {listing.laundrySummary || "—"}</p>
+        </div>
+      </section>
+
+      {/* Neighborhood */}
+      <section>
+        <h2 className="text-xl font-semibold mb-4">Neighborhood insights</h2>
+
+        <div className="grid md:grid-cols-2 gap-4">
+          {[
+            ["Safety", listing.neighborhoodSafety],
+            ["Walkability", listing.neighborhoodWalkability],
+            ["Community", listing.neighborhoodCommunity],
+            ["Noise", listing.neighborhoodNoise],
+            ["Highlights", listing.neighborhoodHighlights],
+            ["Transit", listing.neighborhoodTransitNotes],
+          ].map(([label, value]) => (
             <div
-              key={p.id}
-              className="relative w-full h-32 rounded overflow-hidden"
+              key={label}
+              className="rounded-lg border p-4 bg-gray-50"
             >
-              <Image
-                src={p.url}
-                alt={p.alt ?? ""}
-                fill
-                className="object-cover"
-              />
+              <p className="text-sm font-medium text-gray-900 mb-1">
+                {label}
+              </p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                {value || "—"}
+              </p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* ---------------------- BASIC INFO ---------------------- */}
-      <section className="space-y-1">
-        <h2 className="text-xl font-semibold">Basic Information</h2>
-
-        <div className="text-sm text-gray-700 space-y-1">
-          <p>
-            <strong>Title:</strong> {listing.title}
-          </p>
-          <p>
-            <strong>Address:</strong> {listing.street}
-            {listing.aptUnit ? `, #${listing.aptUnit}` : ""},{" "}
-            {listing.city}, {listing.province}, {listing.postal}
-          </p>
-          <p>
-            <strong>Price:</strong> ${(listing.price / 100).toFixed(2)} /
-            month
-          </p>
-          <p>
-            <strong>Beds:</strong> {listing.beds}
-          </p>
-          <p>
-            <strong>Baths:</strong> {listing.baths}
-          </p>
-          <p>
-            <strong>Property Type:</strong>{" "}
-            {listing.propertyType || "Not set"}
-          </p>
-          <p>
-            <strong>Available From:</strong>{" "}
-            {listing.availableFrom
-              ? new Date(listing.availableFrom).toLocaleDateString()
-              : "Not specified"}
-          </p>
-        </div>
-      </section>
-
-      {/* ---------------------- FURNISHING ---------------------- */}
-      <section className="space-y-1">
-        <h2 className="text-xl font-semibold">Furnishing</h2>
-        <p className="text-sm text-gray-700">
-          {listing.furnished === true
-            ? "This unit is furnished."
-            : listing.furnished === false
-            ? "This unit is unfurnished."
-            : "Not specified."}
-        </p>
-      </section>
-
-      {/* ---------------------- SUMMARIES ---------------------- */}
-      <section className="space-y-2">
-        <h2 className="text-xl font-semibold">Summaries</h2>
-
-        <div className="text-sm text-gray-700 space-y-1">
-          <p>
-            <strong>Ideal Renter: </strong>
-            {listing.idealRenterSummary || "Not specified"}
-          </p>
-          <p>
-            <strong>Pet Policy: </strong>
-            {listing.petSummary || "Not specified"}
-          </p>
-          <p>
-            <strong>Parking: </strong>
-            {listing.parkingSummary || "Not specified"}
-          </p>
-          <p>
-            <strong>Laundry: </strong>
-            {listing.laundrySummary || "Not specified"}
-          </p>
-        </div>
-      </section>
-
-      {/* ---------------------- UTILITIES ---------------------- */}
-      <section className="space-y-2">
-        <h2 className="text-xl font-semibold">Utilities</h2>
-
-        <div className="text-sm text-gray-700 space-y-1">
-          <p>
-            <strong>Included: </strong>
-            {listing.utilitiesIncluded?.included?.length
-              ? listing.utilitiesIncluded.included.join(", ")
-              : "None"}
-          </p>
-          <p>
-            <strong>Not Included: </strong>
-            {listing.utilitiesIncluded?.notIncluded?.length
-              ? listing.utilitiesIncluded.notIncluded.join(", ")
-              : "None"}
-          </p>
-        </div>
-      </section>
-
-      {/* ---------------------- DESCRIPTION ---------------------- */}
-      <section>
-        <h2 className="text-xl font-semibold">Description</h2>
-        <p className="text-sm text-gray-700 whitespace-pre-wrap">
-          {listing.description}
-        </p>
-      </section>
-
-      {/* ---------------------- NEIGHBORHOOD ---------------------- */}
-      <section className="space-y-1">
-        <h2 className="text-xl font-semibold">Neighborhood Insights</h2>
-
-        <div className="text-sm text-gray-700 space-y-1">
-          <p>
-            <strong>Safety:</strong>{" "}
-            {listing.neighborhoodSafety || "Not specified"}
-          </p>
-          <p>
-            <strong>Walkability:</strong>{" "}
-            {listing.neighborhoodWalkability || "Not specified"}
-          </p>
-          <p>
-            <strong>Community:</strong>{" "}
-            {listing.neighborhoodCommunity || "Not specified"}
-          </p>
-          <p>
-            <strong>Noise:</strong>{" "}
-            {listing.neighborhoodNoise || "Not specified"}
-          </p>
-          <p>
-            <strong>Highlights:</strong>{" "}
-            {listing.neighborhoodHighlights || "Not specified"}
-          </p>
-          <p>
-            <strong>Transit Notes:</strong>{" "}
-            {listing.neighborhoodTransitNotes || "Not specified"}
-          </p>
-        </div>
-      </section>
-
-      {/* ---------------------- NAVIGATION ---------------------- */}
-      <div className="flex justify-between pt-4">
+      {/* Actions */}
+      <footer className="flex justify-between pt-4">
         <Button
           variant="outline"
           onClick={() => router.push(prevPath("review", listing.id))}
@@ -311,9 +241,9 @@ export default function ReviewPage() {
         </Button>
 
         <Button onClick={onPublish} disabled={saving}>
-          {saving ? "Publishing..." : "Publish Listing"}
+          {saving ? "Publishing…" : "Publish"}
         </Button>
-      </div>
+      </footer>
     </main>
   );
 }

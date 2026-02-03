@@ -60,6 +60,9 @@ export default async function ThreadPage({
       lastReadAt: new Date(),
     },
   });
+  const io = getIO();
+io?.to(`user:${s.sub}`).emit("messages:unread:update");
+
 
   /* ---------------- send message (server action) ---------------- */
 
@@ -70,7 +73,7 @@ export default async function ThreadPage({
     const text = String(formData.get("text") || "").trim();
     if (!text) return;
 
-    // Anti-spam cooldown (2s)
+    // Anti-spam cooldown (2 seconds)
     const last = await db.message.findFirst({
       where: { senderId: ss.sub, conversationId: params.id },
       orderBy: { createdAt: "desc" },
@@ -92,11 +95,11 @@ export default async function ThreadPage({
       },
     });
 
-    /* ---------------- real-time socket emits ---------------- */
-
     const io = getIO();
 
-    // 1. Update open thread (conversation room)
+    /* ---------------- socket emits ---------------- */
+
+    // 1️⃣ Update open thread
     io?.to(params.id).emit("message:new", {
       id: msg.id,
       body: msg.body,
@@ -104,14 +107,14 @@ export default async function ThreadPage({
       createdAt: msg.createdAt,
     });
 
-    // 2. Update inbox for sender
+    // 2️⃣ Update inbox for sender
     io?.to(`user:${ss.sub}`).emit("inbox:update", {
       conversationId: params.id,
       body: msg.body,
       createdAt: msg.createdAt,
     });
 
-    // 3. Update inbox for other participants
+    // 3️⃣ Update inbox + unread badge for other participants
     const others = await db.conversationParticipant.findMany({
       where: {
         conversationId: params.id,
@@ -121,6 +124,9 @@ export default async function ThreadPage({
     });
 
     others.forEach((p) => {
+      // 🔔 THIS FIXES THE HEADER BADGE
+      io?.to(`user:${p.userId}`).emit("messages:unread:update");
+
       io?.to(`user:${p.userId}`).emit("inbox:update", {
         conversationId: params.id,
         body: msg.body,
@@ -128,7 +134,7 @@ export default async function ThreadPage({
       });
     });
 
-    /* ---------------- update conversation + sender read state ---------------- */
+    /* ---------------- update conversation state ---------------- */
 
     await Promise.all([
       db.conversation.update({
@@ -149,7 +155,7 @@ export default async function ThreadPage({
       }),
     ]);
 
-    /* ---------------- email notification fallback ---------------- */
+    /* ---------------- email fallback ---------------- */
 
     const recipients = await db.conversationParticipant.findMany({
       where: {
@@ -163,7 +169,7 @@ export default async function ThreadPage({
 
     await Promise.all(
       recipients
-        .map((p) => p.user?.email)
+        .map((r) => r.user?.email)
         .filter(Boolean)
         .map((email) =>
           sendNewMessageEmail(

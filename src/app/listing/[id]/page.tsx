@@ -1,8 +1,9 @@
-import type React from "react";
 import Image from "next/image";
 import { notFound, redirect } from "next/navigation";
 import { prisma as db } from "@/lib/db";
 import { requireSession } from "@/lib/auth";
+import ActionsClient from "./ActionsClient";
+
 import {
   MapPin,
   BedDouble,
@@ -135,8 +136,6 @@ export default async function ListingDetail({
       distancePharmacyMeters: true,
       distanceGymMeters: true,
       neighborhoodNotes: true,
-      transit: true,
-      amenities: true,
 
       // pricing / utilities
       utilitiesIncluded: true,
@@ -155,7 +154,35 @@ export default async function ListingDetail({
     },
   });
 
-  if (!listing || listing.status !== "APPROVED") notFound();
+ if (!listing) {
+  return (
+    <main className="mx-auto max-w-6xl px-4 py-8 space-y-6 animate-pulse">
+      <div className="h-8 w-2/3 bg-gray-200 rounded" />
+      <div className="h-4 w-1/3 bg-gray-200 rounded" />
+
+      <div className="mt-6 grid gap-3 md:grid-cols-3">
+        <div className="h-[320px] bg-gray-200 rounded-2xl md:col-span-2" />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="h-[150px] bg-gray-200 rounded-2xl" />
+          <div className="h-[150px] bg-gray-200 rounded-2xl" />
+        </div>
+      </div>
+
+      <div className="grid gap-8 md:grid-cols-[1fr_380px]">
+        <div className="space-y-4">
+          <div className="h-24 bg-gray-200 rounded-xl" />
+          <div className="h-24 bg-gray-200 rounded-xl" />
+        </div>
+        <div className="h-64 bg-gray-200 rounded-xl" />
+      </div>
+    </main>
+  );
+}
+
+if (listing.status !== "APPROVED") notFound();
+
+  
+
 
   /* ------------ derived data ------------ */
 
@@ -328,7 +355,8 @@ export default async function ListingDetail({
       </div>
 
       {/* FIXED: Media grid with structured photos */}
-      <section className="mt-6 grid gap-3 md:grid-cols-3">
+      <section className="mt-6 grid gap-3 md:grid-cols-3 md:sticky md:top-20">
+
         <div className="relative aspect-[16/10] md:col-span-2 overflow-hidden rounded-2xl">
           <Image src={cover} alt="Cover" fill className="object-cover" />
         </div>
@@ -582,7 +610,7 @@ export default async function ListingDetail({
                     Transit
                   </span>
                   <p className="mt-1 whitespace-pre-line">
-                    {listing.transit?.trim() || "—"}
+                    {listing.neighborhoodNotes?.trim() || "—"}
                   </p>
                 </div>
 
@@ -591,7 +619,7 @@ export default async function ListingDetail({
                     Nearby amenities
                   </span>
                   <p className="mt-1 whitespace-pre-line">
-                    {listing.amenities?.trim() || "—"}
+                    {listing.neighborhoodNotes?.trim() || "—"}
                   </p>
                 </div>
               </div>
@@ -712,11 +740,9 @@ export default async function ListingDetail({
                 />
               )}
 
-              <form action={toggleFavorite}>
-                <button className="w-full rounded-xl border py-3 font-medium hover:bg-gray-50 transition-colors">
-                  Save to favorites
-                </button>
-              </form>
+              <ActionsClient onToggleFavorite={toggleFavorite} />
+
+
             </div>
 
             <div className="mt-6 rounded-xl border bg-gray-50 p-4 text-sm text-gray-600">

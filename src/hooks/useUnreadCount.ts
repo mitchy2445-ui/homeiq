@@ -1,35 +1,39 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { io } from "socket.io-client";
+import { useEffect, useState, useCallback } from "react";
+import { getSocket } from "@/lib/socket-client";
 
 export function useUnreadCount() {
   const [count, setCount] = useState(0);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     const res = await fetch("/api/messages/unread-count", {
+      method: "GET",
       cache: "no-store",
+      credentials: "include",
     });
+
     if (res.ok) {
       const data = await res.json();
       setCount(data.count ?? 0);
+    } else {
+      setCount(0);
     }
-  }
-
-  useEffect(() => {
-    refresh();
-
-    const socket = io({
-      path: "/api/socket",
-      withCredentials: true,
-    });
-
-    socket.on("messages:unread:update", refresh);
-
-    return () => {
-      socket.disconnect();
-    };
   }, []);
 
-  return count;
+  useEffect(() => {
+    const socket = getSocket();
+
+    const handleUpdate = () => {
+      refresh();
+    };
+
+    socket.on("messages:unread:update", handleUpdate);
+
+    return () => {
+      socket.off("messages:unread:update", handleUpdate);
+    };
+  }, [refresh]);
+
+  return { count, refresh };
 }

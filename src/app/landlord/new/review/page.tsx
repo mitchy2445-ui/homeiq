@@ -315,7 +315,7 @@ export default function ReviewPage() {
           setLoading(false);
           return;
         }
-        const res = await fetch(`/api/listings/${encodeURIComponent(id)}`, {
+        const res = await fetch(`/api/host/listings/${encodeURIComponent(id)}`, {
           cache: "no-store",
           signal: ac.signal,
         });
@@ -374,7 +374,7 @@ export default function ReviewPage() {
     setPublishing(true);
     setError("");
     try {
-      const res = await fetch(`/api/listings/${encodeURIComponent(id)}/publish`, {
+      const res = await fetch(`/api/host/listings/${encodeURIComponent(id)}/publish`, {
         method: "POST",
       });
       const bodyText = await res.text();

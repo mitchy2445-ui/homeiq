@@ -1,14 +1,23 @@
 // src/lib/socket.ts
-import { Server as IOServer } from "socket.io";
+import { Server as IOServer, type Socket } from "socket.io";
 import type { Server as HTTPServer } from "http";
-import type { Socket } from "socket.io";
+
+/* ---------- types ---------- */
 
 type TypingPayload = {
   conversationId: string;
   isTyping: boolean;
 };
 
+/* ---------- singleton ---------- */
+
 let io: IOServer | null = null;
+
+/* ---------- presence store (in-memory) ---------- */
+// DO NOT persist this in DB
+const onlineUsers = new Set<string>();
+
+/* ---------- init / getter ---------- */
 
 export function getIO(server?: HTTPServer): IOServer | null {
   if (!io && server) {
@@ -23,27 +32,57 @@ export function getIO(server?: HTTPServer): IOServer | null {
     io.on("connection", (socket: Socket) => {
       console.log("🟢 Socket connected:", socket.id);
 
-      /* -------- join conversation room -------- */
+      /* ----------------------------------------
+         JOIN CONVERSATION ROOM
+      ---------------------------------------- */
       socket.on("join", (conversationId: string) => {
         socket.join(conversationId);
       });
 
-      /* -------- join user room (for inbox updates) -------- */
+      /* ----------------------------------------
+         JOIN USER ROOM (for inbox / unread)
+      ---------------------------------------- */
       socket.on("join:user", (userId: string) => {
         socket.join(`user:${userId}`);
       });
 
-      /* -------- typing indicator -------- */
-      socket.on("typing", (payload: TypingPayload) => {
-        const { conversationId, isTyping } = payload;
+      /* ----------------------------------------
+         USER ONLINE (PRESENCE)
+      ---------------------------------------- */
+      socket.on("user:online", (userId: string) => {
+        onlineUsers.add(userId);
+        socket.data.userId = userId;
 
-        socket
-          .to(conversationId)
-          .emit("typing", { isTyping });
+        io?.emit("user:presence", {
+          userId,
+          online: true,
+        });
       });
 
-      /* -------- cleanup -------- */
+      /* ----------------------------------------
+         TYPING INDICATOR
+      ---------------------------------------- */
+      socket.on("typing", (payload: TypingPayload) => {
+        socket
+          .to(payload.conversationId)
+          .emit("typing", { isTyping: payload.isTyping });
+      });
+
+      /* ----------------------------------------
+         DISCONNECT
+      ---------------------------------------- */
       socket.on("disconnect", () => {
+        const userId = socket.data.userId;
+
+        if (userId) {
+          onlineUsers.delete(userId);
+
+          io?.emit("user:presence", {
+            userId,
+            online: false,
+          });
+        }
+
         console.log("🔴 Socket disconnected:", socket.id);
       });
     });

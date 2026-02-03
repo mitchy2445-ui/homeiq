@@ -4,7 +4,6 @@ import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 
 /* ---------------------- ENUM-LIKE OPTIONS ---------------------- */
@@ -37,6 +36,7 @@ const WALKABILITY_OPTIONS = [
 const NOISE_OPTIONS = [
   { value: "", label: "Select…" },
   { value: "VERY_QUIET", label: "Very quiet" },
+  { value: "MOSTLY_QUIET", label: "Mostly quiet" },
   { value: "AVERAGE", label: "Average noise" },
   { value: "LIVELY", label: "Lively area" },
 ] as const;
@@ -48,7 +48,7 @@ export default function InsightsPage() {
   const sp = useSearchParams();
   const listingId = sp.get("id") ?? "";
 
-  const [loading, setLoading] = React.useState(true);
+  const [, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState("");
 
@@ -89,13 +89,33 @@ export default function InsightsPage() {
 
         if (!active) return;
 
-        // Fill fields (if null, fallback to "")
-        setCommunity(data.neighborhoodCommunity ?? "");
-        setSafety(data.neighborhoodSafety ?? "");
-        setWalkability(data.neighborhoodWalkability ?? "");
-        setNoise(data.neighborhoodNoise ?? "");
-        setTransitNotes(data.neighborhoodTransitNotes ?? "");
-        setHighlights(data.neighborhoodHighlights ?? "");
+        // Load textareas
+        setTransitNotes(data.transit ?? "");
+        setHighlights(data.amenities ?? "");
+
+        // Parse neighborhoodNotes for selects
+        if (data.neighborhoodNotes) {
+          const lines = data.neighborhoodNotes.split('\n').map((l: string) => l.trim()).filter(Boolean);
+          for (const line of lines) {
+            if (line.startsWith('Vibe: ')) {
+              const label = line.slice(6);
+              const opt = COMMUNITY_OPTIONS.find(o => o.label === label);
+              if (opt?.value) setCommunity(opt.value);
+            } else if (line.startsWith('Safety: ')) {
+              const label = line.slice(8);
+              const opt = SAFETY_OPTIONS.find(o => o.label === label);
+              if (opt?.value) setSafety(opt.value);
+            } else if (line.startsWith('Walkability: ')) {
+              const label = line.slice(12);
+              const opt = WALKABILITY_OPTIONS.find(o => o.label === label);
+              if (opt?.value) setWalkability(opt.value);
+            } else if (line.startsWith('Noise level: ')) {
+              const label = line.slice(12);
+              const opt = NOISE_OPTIONS.find(o => o.label === label);
+              if (opt?.value) setNoise(opt.value);
+            }
+          }
+        }
 
       } catch {
         setError("Failed to load listing.");
@@ -114,6 +134,15 @@ export default function InsightsPage() {
   async function save() {
     if (!listingId) return;
 
+    // Format selects into neighborhoodNotes
+    const neighborhoodLines = [
+      community ? `Vibe: ${COMMUNITY_OPTIONS.find(o => o.value === community)?.label}` : null,
+      safety ? `Safety: ${SAFETY_OPTIONS.find(o => o.value === safety)?.label}` : null,
+      walkability ? `Walkability: ${WALKABILITY_OPTIONS.find(o => o.value === walkability)?.label}` : null,
+      noise ? `Noise level: ${NOISE_OPTIONS.find(o => o.value === noise)?.label}` : null,
+    ].filter(Boolean);
+    const neighborhoodNotes = neighborhoodLines.length > 0 ? neighborhoodLines.join('\n') : null;
+
     setSaving(true);
     setError("");
 
@@ -123,12 +152,9 @@ export default function InsightsPage() {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          neighborhoodCommunity: community || null,
-          neighborhoodSafety: safety || null,
-          neighborhoodWalkability: walkability || null,
-          neighborhoodNoise: noise || null,
-          neighborhoodTransitNotes: transitNotes.trim() || null,
-          neighborhoodHighlights: highlights.trim() || null,
+          neighborhoodNotes,
+          transit: transitNotes.trim() || null,
+          amenities: highlights.trim() || null,
         }),
       });
 

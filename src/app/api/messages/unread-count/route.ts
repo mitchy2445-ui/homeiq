@@ -6,45 +6,36 @@ export const runtime = "nodejs";
 
 export async function GET() {
   const session = await getSessionFromCookie();
+
   if (!session) {
     return NextResponse.json({ count: 0 });
   }
 
-  const count = await db.conversation.count({
+  // Fetch all conversation participants for this user
+  const rows = await db.conversationParticipant.findMany({
     where: {
-      participants: {
-        some: {
-          userId: session.sub,
-          OR: [
-            { lastReadAt: null },
-            {
-              conversation: {
-                lastMessageAt: {
-                  gt: undefined, // placeholder, filtered below
-                },
-              },
-            },
-          ],
+      userId: session.sub,
+    },
+    select: {
+      lastReadAt: true,
+      conversation: {
+        select: {
+          lastMessageAt: true,
         },
       },
     },
   });
 
-  // More precise: count conversations where lastMessageAt > lastReadAt
-  const rows = await db.conversationParticipant.findMany({
-    where: { userId: session.sub },
-    select: {
-      lastReadAt: true,
-      conversation: { select: { lastMessageAt: true } },
-    },
-  });
+  // Count unread conversations
+  const unreadCount = rows.filter((row) => {
+    const lastMessageAt = row.conversation.lastMessageAt;
+    const lastReadAt = row.lastReadAt;
 
-  const unread = rows.filter(
-    (r) =>
-      r.conversation.lastMessageAt &&
-      (!r.lastReadAt ||
-        r.conversation.lastMessageAt > r.lastReadAt)
-  ).length;
+    if (!lastMessageAt) return false;
+    if (!lastReadAt) return true;
 
-  return NextResponse.json({ count: unread });
+    return lastMessageAt > lastReadAt;
+  }).length;
+
+  return NextResponse.json({ count: unreadCount });
 }

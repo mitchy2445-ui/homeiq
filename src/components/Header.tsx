@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import SearchBar from "@/components/SearchBar";
 import { usePathname } from "next/navigation";
+
 import {
   FiHeart,
   FiMessageCircle,
@@ -19,12 +20,15 @@ import {
   FiCheckCircle,
 } from "react-icons/fi";
 import type { $Enums } from "@prisma/client";
+import { useUnreadCount } from "@/hooks/useUnreadCount";
 
 type Me = { email: string; role?: $Enums.Role } | null;
 type VerificationStatus = "UNAUTHENTICATED" | "UNVERIFIED" | "PENDING" | "VERIFIED" | "REJECTED";
 
 export default function Header() {
   const pathname = usePathname();
+  const { count: unread, refresh } = useUnreadCount();
+
   const showCenteredSearch = pathname === "/";
 
   const [me, setMe] = useState<Me>(null);
@@ -75,11 +79,24 @@ export default function Header() {
   }
 
   useEffect(() => {
-    loadMe();
-    const onFocus = () => loadMe();
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === "homeiq_auth_changed") loadMe();
+    loadMe().then(() => {
+      refresh();
+    });
+
+    const onFocus = () => {
+      loadMe().then(() => {
+        refresh();
+      });
     };
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "homeiq_auth_changed") {
+        loadMe().then(() => {
+          refresh();
+        });
+      }
+    };
+
     window.addEventListener("focus", onFocus);
     window.addEventListener("storage", onStorage);
     return () => {
@@ -87,7 +104,7 @@ export default function Header() {
       window.removeEventListener("storage", onStorage);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refresh]);
 
   // Close the hamburger when navigating
   useEffect(() => {
@@ -171,11 +188,17 @@ export default function Header() {
           </Link>
 
           <Link
-            aria-label="Messages"
             href="/messages"
-            className="p-2 rounded-full hover:bg-gray-50"
+            aria-label="Messages"
+            className="relative p-2 rounded-full hover:bg-gray-50"
           >
             <FiMessageCircle className="h-5 w-5" />
+
+            {unread > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-emerald-600 text-white text-[11px] flex items-center justify-center px-1">
+                {unread > 9 ? "9+" : unread}
+              </span>
+            )}
           </Link>
 
           <button

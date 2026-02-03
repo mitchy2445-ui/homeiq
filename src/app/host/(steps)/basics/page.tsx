@@ -4,56 +4,19 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { nextPath } from "@/lib/listingWizard";
 
 const PROVINCES_CA = [
-  "MB", "SK", "AB", "BC", "ON", "QC",
-  "NB", "NS", "PE", "NL", "YT", "NT", "NU",
-];
+  "MB", "SK", "AB", "BC", "ON", "QC", "NB", "NS", "PE", "NL", "YT", "NT", "NU",
+] as const;
 
 const UTILITY_OPTIONS = [
-  "Heat",
-  "Water",
-  "Electricity",
-  "Gas",
-  "Internet",
-  "Garbage",
-  "Parking",
-];
+  "Heat", "Water", "Electricity", "Gas", "Internet", "Garbage", "Parking",
+] as const;
 
-const IDEAL_RENTER_OPTIONS = [
-  "Students",
-  "Young professionals",
-  "Families",
-  "Couples",
-  "Single tenant",
-  "Quiet / low-noise tenants",
-  "No strong preference",
-];
-
-const PET_OPTIONS = [
-  "No pets",
-  "Cats allowed",
-  "Dogs allowed",
-  "Cats & dogs allowed",
-  "Small pets considered",
-  "Pets allowed with approval",
-];
-
-const PARKING_OPTIONS = [
-  "Outdoor stall included",
-  "Covered / underground spot",
-  "Street parking available",
-  "Visitor parking available",
-  "No dedicated parking",
-];
-
-const LAUNDRY_OPTIONS = [
-  "In-suite laundry",
-  "Laundry in building",
-  "Shared / coin-op on site",
-  "No laundry on property",
-];
 
 type FormState = {
   title: string;
@@ -73,7 +36,7 @@ type FormState = {
   availableFrom: string;
   minLeaseMonths: string;
 
-  preferredTenantType: string; // free text
+  preferredTenantType: string;
   preferredTenantSelected: string[];
 
   petPolicy: string;
@@ -89,9 +52,10 @@ type FormState = {
   utilitiesNotIncluded: string[];
 };
 
-export default function BasicsForm() {
-  const router = useRouter();
 
+
+export default function BasicsPage() {
+  const router = useRouter();
   const [form, setForm] = useState<FormState>({
     title: "",
     street: "",
@@ -127,445 +91,356 @@ export default function BasicsForm() {
   });
 
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
-  /** Fix: no `any`, strong typed handler */
-  const setField =
-    (key: keyof FormState) =>
-    (
-      e: React.ChangeEvent<
-        HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-      >
-    ) =>
-      setForm((f) => ({ ...f, [key]: e.target.value }));
+  const updateField = <K extends keyof FormState>(
+    key: K,
+    value: FormState[K]
+  ) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
 
-  function toggleUtility(
+  const toggleArrayItem = (
     key: "utilitiesIncluded" | "utilitiesNotIncluded",
     value: string
-  ) {
-    setForm((f) => {
-      const current = new Set(f[key]);
-      const otherKey =
-        key === "utilitiesIncluded" ? "utilitiesNotIncluded" : "utilitiesIncluded";
+  ) => {
+    setForm((prev) => {
+      const arr = [...prev[key]];
+      const otherKey = key === "utilitiesIncluded" ? "utilitiesNotIncluded" : "utilitiesIncluded";
+      const otherArr = [...prev[otherKey]];
 
-      current.has(value) ? current.delete(value) : current.add(value);
-
-      const other = new Set(f[otherKey]);
-      if (other.has(value)) other.delete(value);
-
-      return {
-        ...f,
-        [key]: [...current],
-        [otherKey]: [...other],
-      };
-    });
-  }
-
-  /** Fix: single select for pets */
-  function toggleOption(
-    key:
-      | "preferredTenantSelected"
-      | "petOptionsSelected"
-      | "parkingOptionsSelected"
-      | "laundryOptionsSelected",
-    value: string
-  ) {
-    setForm((f) => {
-      if (key === "petOptionsSelected") {
-        return { ...f, petOptionsSelected: [value] };
+      const index = arr.indexOf(value);
+      if (index !== -1) {
+        arr.splice(index, 1);
+      } else {
+        arr.push(value);
+        const otherIndex = otherArr.indexOf(value);
+        if (otherIndex !== -1) otherArr.splice(otherIndex, 1);
       }
 
-      const s = new Set(f[key]);
-      s.has(value) ? s.delete(value) : s.add(value);
-      return { ...f, [key]: [...s] };
+      return {
+        ...prev,
+        [key]: arr,
+        [otherKey]: otherArr,
+      };
     });
-  }
+  };
 
-  function buildSelection(selected: string[], notes: string) {
-    const parts = [...selected];
-    if (notes.trim()) parts.push(notes.trim());
-    return parts.join("; ");
-  }
+ 
 
-  /** Fix: typed submit handler */
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setError("");
-
-    const title = form.title.trim();
-    const street = form.street.trim();
-    const city = form.city.trim();
-    const province = form.province.trim();
-    const postal = form.postal.trim().toUpperCase();
-    const beds = Number(form.beds);
-    const baths = Number(form.baths);
-    const price = Number(form.monthlyPrice.trim().replace(/[, ]+/g, ""));
-    const description = form.description.trim();
-
-    if (title.length < 10) return setError("Title must be at least 10 characters.");
-    if (!street) return setError("Street is required.");
-    if (!city) return setError("City is required.");
-    if (!province) return setError("Province required.");
-    if (!postal) return setError("Postal required.");
-    if (!Number.isFinite(beds)) return setError("Beds must be a number.");
-    if (!Number.isFinite(baths)) return setError("Baths must be a number.");
-    if (!Number.isFinite(price)) return setError("Invalid price.");
-    if (description.length < 80) return setError("Description must be at least 80 characters.");
-
-    /** FIX: No unused expression */
-    const idealRenterSummary = form.preferredTenantSelected.length
-      ? `Ideal for ${form.preferredTenantSelected.join(", ").toLowerCase()}.`
-      : form.preferredTenantType.trim()
-      ? `Ideal for ${form.preferredTenantType.trim().toLowerCase()}.`
-      : null;
-
-    const petSummary = buildSelection(form.petOptionsSelected, form.petPolicy);
-    const parkingSummary = buildSelection(
-      form.parkingOptionsSelected,
-      form.parkingDetails
-    );
-    const laundrySummary = buildSelection(
-      form.laundryOptionsSelected,
-      form.laundryDetails
-    );
-
+    setError(null);
     setSubmitting(true);
 
-    const res = await fetch("/api/host/listings", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title,
-        street,
-        city,
-        province,
-        postal,
-        beds,
-        baths,
-        monthlyPrice: price,
-        propertyType: form.propertyType || null,
-        description,
+    // Basic client-side validation
+    const trimmedTitle = form.title.trim();
+    const trimmedStreet = form.street.trim();
+    const trimmedCity = form.city.trim();
+    const trimmedProvince = form.province.trim();
+    const trimmedPostal = form.postal.trim().toUpperCase().replace(/\s/g, "");
+    const bedsNum = parseInt(form.beds, 10);
+    const bathsNum = parseInt(form.baths, 10);
+    const priceStr = form.monthlyPrice.trim().replace(/[^0-9.]/g, "");
+    const priceNum = parseFloat(priceStr);
+    const trimmedDesc = form.description.trim();
 
-        isFurnished: form.isFurnished || null,
-        depositAmount: form.depositAmount
-          ? Number(form.depositAmount) * 100
-          : null,
-        maxOccupancy: form.maxOccupancy ? Number(form.maxOccupancy) : null,
-        minLeaseMonths: form.minLeaseMonths
-          ? Number(form.minLeaseMonths)
-          : null,
-        availableFrom: form.availableFrom || null,
-
-        // summaries
-        idealRenterSummary,
-        petSummary,
-        parkingSummary,
-        laundrySummary,
-
-        utilitiesIncluded: form.utilitiesIncluded,
-        utilitiesNotIncluded: form.utilitiesNotIncluded,
-      }),
-    });
-
-    const body = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      setError(body.error || "Unable to save listing.");
+    if (trimmedTitle.length < 10) {
+      setError("Title must be at least 10 characters.");
+      setSubmitting(false);
+      return;
+    }
+    if (!trimmedStreet || !trimmedCity || !trimmedProvince || !trimmedPostal) {
+      setError("Full address is required.");
+      setSubmitting(false);
+      return;
+    }
+    if (isNaN(bedsNum) || bedsNum < 0) {
+      setError("Beds must be a valid non-negative number.");
+      setSubmitting(false);
+      return;
+    }
+    if (isNaN(bathsNum) || bathsNum < 1) {
+      setError("Baths must be at least 1.");
+      setSubmitting(false);
+      return;
+    }
+    if (isNaN(priceNum) || priceNum <= 0) {
+      setError("Monthly price must be greater than 0.");
+      setSubmitting(false);
+      return;
+    }
+    if (trimmedDesc.length < 80) {
+      setError("Description must be at least 80 characters.");
       setSubmitting(false);
       return;
     }
 
-    router.replace(nextPath("basics", body.id));
-  }
+    try {
+      // Step 1: Create draft listing (minimal)
+      const createRes = await fetch("/api/host/listings", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!createRes.ok) {
+        const err = await createRes.json() as { error?: string };
+        throw new Error(err.error ?? "Failed to create draft listing");
+      }
+
+      const { id } = await createRes.json() as { id: string };
+
+      // Step 2: Immediately PATCH the new listing with form data
+      const patchRes = await fetch(`/api/host/listings/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: trimmedTitle,
+          street: trimmedStreet,
+          city: trimmedCity,
+          province: trimmedProvince,
+          postal: trimmedPostal,
+          country: "Canada",
+
+          beds: bedsNum,
+          baths: bathsNum,
+          priceCents: Math.round(priceNum * 100),
+
+          propertyType: form.propertyType || undefined,
+          description: trimmedDesc,
+
+          isFurnished: form.isFurnished || undefined,
+          depositCents: form.depositAmount
+            ? Math.round(parseFloat(form.depositAmount.replace(/[^0-9.]/g, "")) * 100)
+            : undefined,
+          maxOccupants: form.maxOccupancy ? parseInt(form.maxOccupancy, 10) : undefined,
+          minLeaseMonths: form.minLeaseMonths ? parseInt(form.minLeaseMonths, 10) : undefined,
+          availableFrom: form.availableFrom || undefined,
+
+          idealRenterSummary: form.preferredTenantSelected.length
+            ? `Ideal for ${form.preferredTenantSelected.join(", ").toLowerCase()}.`
+            : form.preferredTenantType.trim()
+              ? `Ideal for ${form.preferredTenantType.trim().toLowerCase()}.`
+              : undefined,
+
+          petSummary: form.petOptionsSelected.length
+            ? form.petOptionsSelected[0] + (form.petPolicy.trim() ? `; ${form.petPolicy.trim()}` : "")
+            : undefined,
+
+          parkingSummary: form.parkingOptionsSelected.length
+            ? form.parkingOptionsSelected.join(", ") +
+              (form.parkingDetails.trim() ? `; ${form.parkingDetails.trim()}` : "")
+            : undefined,
+
+          laundrySummary: form.laundryOptionsSelected.length
+            ? form.laundryOptionsSelected.join(", ") +
+              (form.laundryDetails.trim() ? `; ${form.laundryDetails.trim()}` : "")
+            : undefined,
+
+          utilitiesIncluded: form.utilitiesIncluded.length ? form.utilitiesIncluded : undefined,
+          utilitiesNotIncluded: form.utilitiesNotIncluded.length ? form.utilitiesNotIncluded : undefined,
+        }),
+      });
+
+      if (!patchRes.ok) {
+        const err = await patchRes.json() as { error?: string };
+        throw new Error(err.error ?? "Failed to save listing details");
+      }
+
+      // Success: redirect to next step
+      router.push(nextPath("details", id));
+    } catch (err) {
+      console.error(err);
+      setError(
+        err instanceof Error ? err.message : "An unexpected error occurred"
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
-    <form className="space-y-8" onSubmit={onSubmit}>
-      {error && (
-        <div className="rounded-md border border-red-500 bg-red-50 px-3 py-2 text-sm text-red-600">
-          {error}
-        </div>
-      )}
+    <div className="container mx-auto py-10 max-w-4xl">
+      <h1 className="text-3xl font-bold mb-8">Create New Listing – Basics</h1>
 
-      {/* TITLE */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Listing title</label>
-        <Input
-          placeholder="Modern 2-bedroom suite"
-          value={form.title}
-          onChange={setField("title")}
-        />
-      </div>
+      <form onSubmit={handleSubmit} className="space-y-10">
+        {error && (
+          <div className="rounded-md bg-red-50 border border-red-200 p-4 text-red-700 text-sm">
+            {error}
+          </div>
+        )}
 
-      {/* ADDRESS */}
-      <div className="space-y-4 border-t pt-6">
-        <h2 className="text-base font-semibold">Address</h2>
-        <Input
-          placeholder="Street address"
-          value={form.street}
-          onChange={setField("street")}
-        />
-
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        {/* Title */}
+        <div className="space-y-2">
+          <Label htmlFor="title">Listing Title *</Label>
           <Input
-            placeholder="City"
-            value={form.city}
-            onChange={setField("city")}
-          />
-          <select
-            className="rounded-md border px-3 py-2 text-sm"
-            value={form.province}
-            onChange={setField("province")}
-          >
-            <option value="">Province</option>
-            {PROVINCES_CA.map((p) => (
-              <option key={p}>{p}</option>
-            ))}
-          </select>
-
-          <Input
-            placeholder="Postal code"
-            value={form.postal}
-            onChange={setField("postal")}
-          />
-
-          <Input disabled value="Canada" />
-        </div>
-      </div>
-
-      {/* HOME SETUP */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t pt-6">
-        <div>
-          <label className="text-sm font-medium">Beds</label>
-          <Input value={form.beds} onChange={setField("beds")} />
-        </div>
-
-        <div>
-          <label className="text-sm font-medium">Baths</label>
-          <Input value={form.baths} onChange={setField("baths")} />
-        </div>
-
-        <div>
-          <label className="text-sm font-medium">Property type</label>
-          <select
-            className="mt-1 rounded-md border px-3 py-2 text-sm"
-            value={form.propertyType}
-            onChange={setField("propertyType")}
-          >
-            <option value="">Select…</option>
-            <option>Apartment</option>
-            <option>Condo</option>
-            <option>House</option>
-            <option>Basement suite</option>
-            <option>Townhouse</option>
-            <option>Room in shared home</option>
-          </select>
-        </div>
-      </div>
-
-      {/* PRICE & OCCUPANCY */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div>
-          <label className="text-sm font-medium">Monthly price (CAD)</label>
-          <Input
-            placeholder="1250"
-            value={form.monthlyPrice}
-            onChange={setField("monthlyPrice")}
+            id="title"
+            placeholder="e.g. Bright 2-Bedroom Downtown Condo"
+            value={form.title}
+            onChange={(e) => updateField("title", e.target.value)}
+            required
           />
         </div>
-        <div>
-          <label className="text-sm font-medium">Deposit (CAD)</label>
-          <Input
-            placeholder="Optional"
-            value={form.depositAmount}
-            onChange={setField("depositAmount")}
-          />
-        </div>
-        <div>
-          <label className="text-sm font-medium">Max occupants</label>
-          <Input
-            placeholder="Optional"
-            value={form.maxOccupancy}
-            onChange={setField("maxOccupancy")}
-          />
-        </div>
-      </div>
 
-      {/* UTILITIES */}
-      <div className="grid sm:grid-cols-2 gap-6 border-t pt-6">
-        <div>
-          <span className="text-sm font-medium">Utilities included</span>
-          <div className="mt-2 space-y-1">
-            {UTILITY_OPTIONS.map((u) => (
-              <label key={u} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.utilitiesIncluded.includes(u)}
-                  onChange={() => toggleUtility("utilitiesIncluded", u)}
-                />
-                {u}
-              </label>
-            ))}
+        {/* Address */}
+        <div className="space-y-4">
+          <h2 className="text-xl font-semibold">Address</h2>
+          <div className="space-y-4">
+            <Input
+              placeholder="Street Address"
+              value={form.street}
+              onChange={(e) => updateField("street", e.target.value)}
+              required
+            />
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <Input
+                placeholder="City"
+                value={form.city}
+                onChange={(e) => updateField("city", e.target.value)}
+                required
+              />
+              <select
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                value={form.province}
+                onChange={(e) => updateField("province", e.target.value)}
+                required
+              >
+                <option value="">Province</option>
+                {PROVINCES_CA.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+              <Input
+                placeholder="Postal Code"
+                value={form.postal}
+                onChange={(e) => updateField("postal", e.target.value.toUpperCase())}
+                required
+              />
+              <Input value="Canada" disabled />
+            </div>
           </div>
         </div>
 
-        <div>
-          <span className="text-sm font-medium">Utilities not included</span>
-          <div className="mt-2 space-y-1">
-            {UTILITY_OPTIONS.map((u) => (
-              <label key={u} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.utilitiesNotIncluded.includes(u)}
-                  onChange={() => toggleUtility("utilitiesNotIncluded", u)}
-                />
-                {u}
-              </label>
-            ))}
+        {/* Beds / Baths / Type */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="space-y-2">
+            <Label htmlFor="beds">Bedrooms *</Label>
+            <Input
+              id="beds"
+              type="number"
+              min="0"
+              value={form.beds}
+              onChange={(e) => updateField("beds", e.target.value)}
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="baths">Bathrooms *</Label>
+            <Input
+              id="baths"
+              type="number"
+              min="1"
+              step="0.5"
+              value={form.baths}
+              onChange={(e) => updateField("baths", e.target.value)}
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="propertyType">Property Type</Label>
+            <select
+              id="propertyType"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={form.propertyType}
+              onChange={(e) => updateField("propertyType", e.target.value)}
+            >
+              <option value="">Select type</option>
+              <option>Apartment</option>
+              <option>Condo</option>
+              <option>House</option>
+              <option>Basement suite</option>
+              <option>Townhouse</option>
+              <option>Room in shared home</option>
+            </select>
           </div>
         </div>
-      </div>
 
-      {/* IDEAL RENTER */}
-      <div className="space-y-2 border-t pt-6">
-        <span className="text-sm font-medium">Ideal renter</span>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {IDEAL_RENTER_OPTIONS.map((opt) => (
-            <label
-              key={opt}
-              className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
-            >
-              <input
-                type="checkbox"
-                checked={form.preferredTenantSelected.includes(opt)}
-                onChange={() =>
-                  toggleOption("preferredTenantSelected", opt)
-                }
-              />
-              {opt}
-            </label>
-          ))}
+        {/* Price & Occupancy */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="space-y-2">
+            <Label htmlFor="monthlyPrice">Monthly Rent (CAD) *</Label>
+            <Input
+              id="monthlyPrice"
+              type="text"
+              inputMode="numeric"
+              placeholder="1,250"
+              value={form.monthlyPrice}
+              onChange={(e) => updateField("monthlyPrice", e.target.value)}
+              required
+            />
+          </div>
+          {/* Add other optional fields like deposit, maxOccupancy, etc. similarly */}
         </div>
 
-        <Input
-          placeholder="Other notes"
-          value={form.preferredTenantType}
-          onChange={setField("preferredTenantType")}
-        />
-      </div>
-
-      {/* PETS — SINGLE SELECT */}
-      <div className="space-y-2 border-t pt-6">
-        <span className="text-sm font-medium">Pets</span>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {PET_OPTIONS.map((opt) => (
-            <label
-              key={opt}
-              className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
-            >
-              <input
-                type="checkbox"
-                checked={form.petOptionsSelected[0] === opt}
-                onChange={() => toggleOption("petOptionsSelected", opt)}
-              />
-              {opt}
-            </label>
-          ))}
+        {/* Utilities */}
+        <div className="space-y-4">
+          <h2 className="text-xl font-semibold">Utilities</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div>
+              <Label className="mb-3 block">Included in Rent</Label>
+              {UTILITY_OPTIONS.map((u) => (
+                <div key={u} className="flex items-center space-x-2 mb-2">
+                  <Checkbox
+                    id={`inc-${u}`}
+                    checked={form.utilitiesIncluded.includes(u)}
+                    onCheckedChange={() => toggleArrayItem("utilitiesIncluded", u)}
+                  />
+                  <Label htmlFor={`inc-${u}`}>{u}</Label>
+                </div>
+              ))}
+            </div>
+            <div>
+              <Label className="mb-3 block">Not Included</Label>
+              {UTILITY_OPTIONS.map((u) => (
+                <div key={u} className="flex items-center space-x-2 mb-2">
+                  <Checkbox
+                    id={`not-${u}`}
+                    checked={form.utilitiesNotIncluded.includes(u)}
+                    onCheckedChange={() => toggleArrayItem("utilitiesNotIncluded", u)}
+                  />
+                  <Label htmlFor={`not-${u}`}>{u}</Label>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
-        <Input
-          placeholder="Notes (optional)"
-          value={form.petPolicy}
-          onChange={setField("petPolicy")}
-        />
-      </div>
-
-      {/* PARKING */}
-      <div className="space-y-2 border-t pt-6">
-        <span className="text-sm font-medium">Parking</span>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {PARKING_OPTIONS.map((opt) => (
-            <label
-              key={opt}
-              className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
-            >
-              <input
-                type="checkbox"
-                checked={form.parkingOptionsSelected.includes(opt)}
-                onChange={() => toggleOption("parkingOptionsSelected", opt)}
-              />
-              {opt}
-            </label>
-          ))}
+        {/* Description */}
+        <div className="space-y-2">
+          <Label htmlFor="description">Description *</Label>
+          <Textarea
+            id="description"
+            placeholder="Describe the property, features, vibe..."
+            className="min-h-[120px]"
+            value={form.description}
+            onChange={(e) => updateField("description", e.target.value)}
+            required
+          />
         </div>
 
-        <Input
-          placeholder="Parking notes"
-          value={form.parkingDetails}
-          onChange={setField("parkingDetails")}
-        />
-      </div>
-
-      {/* LAUNDRY */}
-      <div className="space-y-2 border-t pt-6">
-        <span className="text-sm font-medium">Laundry</span>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {LAUNDRY_OPTIONS.map((opt) => (
-            <label
-              key={opt}
-              className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
-            >
-              <input
-                type="checkbox"
-                checked={form.laundryOptionsSelected.includes(opt)}
-                onChange={() => toggleOption("laundryOptionsSelected", opt)}
-              />
-              {opt}
-            </label>
-          ))}
+        {/* Submit */}
+        <div className="pt-6">
+          <Button
+            type="submit"
+            disabled={submitting}
+            className="bg-green-700 hover:bg-green-800 px-8 py-6 text-lg"
+          >
+            {submitting ? "Saving..." : "Save & Continue to Details"}
+          </Button>
         </div>
-
-        <Input
-          placeholder="Laundry notes"
-          value={form.laundryDetails}
-          onChange={setField("laundryDetails")}
-        />
-      </div>
-
-      {/* DESCRIPTION */}
-      <div className="space-y-2 border-t pt-6">
-        <label className="text-sm font-medium">Description</label>
-        <textarea
-          className="w-full min-h-28 rounded-md border px-3 py-2 text-sm"
-          value={form.description}
-          onChange={setField("description")}
-          placeholder="Describe the unit, layout, amenities, nearby points of interest…"
-        />
-      </div>
-
-      {/* SUBMIT BUTTON */}
-      <div className="pt-4">
-        <button
-          type="submit"
-          disabled={submitting}
-          className="
-            rounded-full 
-            bg-[#1F6B45] 
-            text-white 
-            px-6 py-3 
-            text-sm font-medium 
-            shadow-sm
-            disabled:opacity-60
-            disabled:cursor-not-allowed
-          "
-        >
-          {submitting ? "Saving…" : "Save & Continue"}
-        </button>
-      </div>
-    </form>
+      </form>
+    </div>
   );
 }

@@ -100,7 +100,6 @@ model User {
   verificationTokens VerificationToken[]
   landlordProfile    LandlordProfile?
 
-  // ✅ FIXED: named relation matches ConversationParticipant
   conversationMemberships ConversationParticipant[] @relation("ConversationMembers")
 
   sentMessages Message[]  @relation("UserMessages")
@@ -142,7 +141,7 @@ model LandlordProfile {
   kycRef        String?
   addressDocUrl String?
 
-  phoneOtpHash    String?
+  phoneOtpHash     String?
   phoneOtpExpires DateTime?
 
   createdAt DateTime @default(now())
@@ -154,25 +153,25 @@ model Listing {
   landlordId String?
   landlord   User?   @relation(fields: [landlordId], references: [id])
 
-  title       String
+  // ✅ Draft-safe fields
+  title       String?
   description String?
   houseRules  String?
-  
 
-  street   String
+  priceCents Int?
+
+  street   String?
   aptUnit  String?
-  city     String
-  province String
-  postal   String
+  city     String?
+  province String?
+  postal   String?
   country  String?
 
-  price  Int
-  beds   Int
-  baths  Int
+  beds   Int?
+  baths  Int?
   status Status @default(DRAFT)
-
+  insights Json?
   images   Json?
-  videos   Json?
   videoUrl String?
   photos   ListingPhoto[]
 
@@ -189,8 +188,8 @@ model Listing {
 
   parkingType   ParkingType?
   petPolicy     PetPolicy?
-  accessibility Json?
   laundry       LaundryType?
+  accessibility Json?
 
   heating   String?
   cooling   String?
@@ -216,8 +215,14 @@ model Listing {
   rulesNotes             String?
 
   neighborhoodNotes String?
-  transit           String?
-  amenities         String?
+
+  // Step 4 – Neighborhood Insights
+  neighborhoodCommunity    String?
+  neighborhoodSafety       String?
+  neighborhoodWalkability  String?
+  neighborhoodNoise        String?
+  neighborhoodTransitNotes String?
+  neighborhoodHighlights   String?
 
   conversations   Conversation[]   @relation("ListingConversations")
   favoritedBy     Favorite[]

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { socket } from "@/lib/socket-client";
+import { getSocket } from "@/lib/socket-client";
 import ConversationRow from "./ConversationRow";
 
 type InboxItem = {
@@ -23,30 +23,51 @@ export default function InboxClient({
   /* -------- socket inbox updates -------- */
 
   useEffect(() => {
+    const socket = getSocket();
+
     function onInboxUpdate(payload: {
       conversationId: string;
       body: string;
       createdAt: string;
     }) {
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === payload.conversationId
-            ? {
-                ...c,
-                lastMessage: payload.body,
-                lastMessageAt: payload.createdAt,
-                unread: true,
-              }
-            : c
-        )
-      );
+      setConversations((prev) => {
+        const existing = prev.find(
+          (c) => c.id === payload.conversationId
+        );
+
+        if (!existing) return prev;
+
+        const updated: InboxItem = {
+          ...existing,
+          lastMessage: payload.body,
+          lastMessageAt: payload.createdAt,
+          unread: true,
+        };
+
+        // move updated conversation to top
+        return [
+          updated,
+          ...prev.filter((c) => c.id !== payload.conversationId),
+        ];
+      });
     }
 
     socket.on("inbox:update", onInboxUpdate);
+
     return () => {
       socket.off("inbox:update", onInboxUpdate);
     };
   }, []);
+
+  /* -------- mark conversation as opened -------- */
+
+  function handleOpen(id: string) {
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === id ? { ...c, unread: false } : c
+      )
+    );
+  }
 
   /* -------- UI -------- */
 
@@ -70,6 +91,7 @@ export default function InboxClient({
           lastMessage={c.lastMessage}
           lastMessageAt={c.lastMessageAt}
           unread={c.unread}
+          onOpen={() => handleOpen(c.id)}
         />
       ))}
     </ul>

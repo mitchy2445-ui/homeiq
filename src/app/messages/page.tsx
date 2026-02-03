@@ -1,26 +1,38 @@
-import Link from "next/link";
+// src/app/messages/page.tsx
 import { requireSession } from "@/lib/auth";
 import { prisma as db } from "@/lib/db";
+import Link from "next/link";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export default async function MessagesPage() {
-  const s = await requireSession("/messages");
+  const session = await requireSession("/messages");
 
-  const convos = await db.conversation.findMany({
-    where: { participants: { some: { userId: s.sub } } },
-    orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+  const conversations = await db.conversation.findMany({
+    where: {
+      participants: {
+        some: { userId: session.sub },
+      },
+    },
+    orderBy: { lastMessageAt: "desc" },
     select: {
       id: true,
-      listing: { select: { title: true } },
+      lastMessageAt: true,
+      listing: {
+        select: { title: true },
+      },
       messages: {
         orderBy: { createdAt: "desc" },
         take: 1,
-        select: { body: true, createdAt: true },
+        select: {
+          body: true,
+          createdAt: true,
+          senderId: true,
+        },
       },
       participants: {
-        where: { userId: s.sub },
+        where: { userId: session.sub },
         select: { lastReadAt: true },
       },
     },
@@ -28,48 +40,69 @@ export default async function MessagesPage() {
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
-      <h1 className="text-2xl font-semibold">Messages</h1>
+      <h1 className="text-2xl font-semibold mb-6">Messages</h1>
 
-      {!convos.length ? (
-        <div className="mt-16 text-center text-gray-600">
-          <p className="text-lg font-medium">No messages yet</p>
-          <p className="mt-2 text-sm">
-            When you contact a host, your conversations will appear here.
+      {conversations.length === 0 ? (
+        <div className="text-center text-gray-500 mt-24">
+          <p className="text-sm">
+            You don’t have any conversations yet.
           </p>
         </div>
       ) : (
-        <ul className="mt-6 divide-y rounded-2xl border bg-white">
-          {convos.map((c) => {
-            const last = c.messages[0];
-            const lastAt = last?.createdAt ?? null;
-            const lastRead = c.participants[0]?.lastReadAt ?? null;
-            const unread = lastAt && (!lastRead || lastAt > lastRead);
-            const title = c.listing?.title ?? "Conversation";
+        <ul className="divide-y rounded-2xl border bg-white">
+          {conversations.map((c) => {
+            const lastMsg = c.messages[0];
+            const lastReadAt = c.participants[0]?.lastReadAt ?? null;
+
+            const lastCreatedAt = lastMsg
+              ? new Date(lastMsg.createdAt)
+              : null;
+
+            const unread =
+  !!lastMsg &&
+  lastMsg.senderId !== session.sub &&
+  (!lastReadAt || lastMsg.createdAt > lastReadAt);
+
 
             return (
               <li key={c.id}>
                 <Link
                   href={`/messages/${c.id}`}
-                  className="block p-4 hover:bg-gray-50 transition"
+                  className="block hover:bg-gray-50 transition"
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <h2 className="truncate font-medium">{title}</h2>
-                    {unread && (
-                      <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-medium text-white">
-                        New
-                      </span>
-                    )}
+                  <div className="flex items-center gap-4 px-4 py-3">
+                    {/* Unread dot */}
+                    <div className="w-2">
+                      {unread && (
+                        <span className="inline-block h-2 w-2 rounded-full bg-emerald-600" />
+                      )}
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-center">
+                        <p className="font-medium truncate">
+                          {c.listing?.title ?? "Conversation"}
+                        </p>
+
+                        {lastCreatedAt && (
+                          <span className="text-xs text-gray-400">
+                            {formatTimestamp(lastCreatedAt)}
+                          </span>
+                        )}
+                      </div>
+
+                      <p
+                        className={`text-sm truncate ${
+                          unread
+                            ? "font-medium text-gray-900"
+                            : "text-gray-500"
+                        }`}
+                      >
+                        {lastMsg?.body ?? "No messages yet"}
+                      </p>
+                    </div>
                   </div>
-
-                  <p className="mt-1 truncate text-sm text-gray-600">
-                    {last ? preview(last.body, 120) : "No messages yet."}
-                  </p>
-
-                  {lastAt && (
-                    <p className="mt-1 text-xs text-gray-400">
-                      {timeAgo(lastAt)}
-                    </p>
-                  )}
                 </Link>
               </li>
             );
@@ -82,19 +115,17 @@ export default async function MessagesPage() {
 
 /* ---------- helpers ---------- */
 
-function preview(text: string, max = 100) {
-  const s = text.replace(/\s+/g, " ").trim();
-  return s.length > max ? s.slice(0, max - 1) + "…" : s;
-}
+function formatTimestamp(date: Date) {
+  const now = new Date();
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
 
-function timeAgo(date: Date) {
-  const ms = Date.now() - date.getTime();
-  const sec = Math.round(ms / 1000);
-  if (sec < 60) return "Just now";
-  const mins = Math.round(sec / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.round(hrs / 24);
-  return `${days}d ago`;
+  return sameDay
+    ? date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : date.toLocaleDateString();
 }

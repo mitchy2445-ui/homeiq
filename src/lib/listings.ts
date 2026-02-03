@@ -30,20 +30,25 @@ export async function getOrCreateDraftListing(listingId?: string) {
   });
   if (existing) return existing;
 
-  return db.listing.create({
-    data: {
-      landlordId: userId,
-      status: "DRAFT",
-      title: "Draft listing",
-      city: "TBD",
-      beds: 0,
-      baths: 0,
-      price: 0, // cents
-      description: "",
-      locationVerified: false,
-      insights: {},
-    },
-  });
+ return db.listing.create({
+  data: {
+    landlordId: userId,
+    status: "DRAFT",
+    title: "Draft listing",
+    city: "TBD",
+    beds: 0,
+    baths: 0,
+
+    // pricing (schema-confirmed)
+    priceCents: 0,
+    depositCents: 0,
+    minLeaseMonths: 0,
+
+    description: "",
+    insights: {},
+  },
+});
+
 }
 
 /**
@@ -136,7 +141,8 @@ export async function updateDraftListing(
   const depositCents = Math.max(0, Math.round(depositDollars * 100));
 
   const updateData: Prisma.ListingUpdateInput = {};
-  if (!Number.isNaN(price)) updateData.price = price;
+  if (!Number.isNaN(price)) updateData.priceCents = price;
+;
   if (!Number.isNaN(depositCents)) updateData.depositCents = depositCents;
   if (minLeaseStr !== "") {
     const m = parseInt(minLeaseStr, 10);

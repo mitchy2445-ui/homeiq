@@ -3,46 +3,55 @@
 import { FiSearch, FiDollarSign } from "react-icons/fi";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { HOME_CITIES } from "@/config/cities"; // uses your existing config
+import { HOME_CITIES } from "@/config/cities";
 
-// Build a simple city list once
+/* ---------------- helpers ---------------- */
+
+// Build a unique, sorted city list once
 const CITY_NAMES = Array.from(
   new Set(HOME_CITIES.map((c) => c.city).filter(Boolean))
 ).sort();
 
+/* ---------------- component ---------------- */
+
 export default function SearchBar() {
+  const router = useRouter();
+
   const [location, setLocation] = useState("");
   const [price, setPrice] = useState("");
   const [beds, setBeds] = useState("");
 
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
+
   const boxRef = useRef<HTMLDivElement>(null);
-  const router = useRouter();
+
+  /* ---------------- autocomplete filtering ---------------- */
 
   const filtered = useMemo(() => {
     const q = location.trim().toLowerCase();
     if (!q) return CITY_NAMES.slice(0, 7);
-    return CITY_NAMES.filter((c) => c.toLowerCase().includes(q)).slice(0, 7);
+
+    return CITY_NAMES.filter((c) =>
+      c.toLowerCase().includes(q)
+    ).slice(0, 7);
   }, [location]);
+
+  /* ---------------- submit handler ---------------- */
 
   const submit = () => {
     const params = new URLSearchParams();
+
     if (location.trim()) params.set("city", location.trim());
-    if (price.trim()) params.set("maxPrice", String(Number(price.trim())));
-    if (beds.trim()) params.set("beds", String(Number(beds.trim())));
+    if (price.trim()) params.set("maxPrice", String(Number(price)));
+    if (beds.trim()) params.set("beds", String(Number(beds)));
+
     params.set("page", "1");
+
     router.push(`/search?${params.toString()}`);
   };
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, []);
+  /* ---------------- keyboard navigation ---------------- */
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
@@ -52,20 +61,45 @@ export default function SearchBar() {
       }
       e.preventDefault();
       submit();
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      if (!open) setOpen(true);
-      setHighlight((h) => (filtered.length ? (h + 1) % filtered.length : 0));
-    } else if (e.key === "ArrowUp") {
+    }
+
+    if (e.key === "ArrowDown") {
       e.preventDefault();
       if (!open) setOpen(true);
       setHighlight((h) =>
-        filtered.length ? (h - 1 + filtered.length) % filtered.length : 0
+        filtered.length ? (h + 1) % filtered.length : 0
       );
-    } else if (e.key === "Escape") {
+    }
+
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) setOpen(true);
+      setHighlight((h) =>
+        filtered.length
+          ? (h - 1 + filtered.length) % filtered.length
+          : 0
+      );
+    }
+
+    if (e.key === "Escape") {
       setOpen(false);
     }
   };
+
+  /* ---------------- close on outside click ---------------- */
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  /* ---------------- UI ---------------- */
 
   return (
     <div className="w-full max-w-2xl" onKeyDown={onKeyDown}>
@@ -74,8 +108,11 @@ export default function SearchBar() {
                    focus-within:ring-2 focus-within:ring-brand-200"
         role="search"
       >
-        {/* Location with autocomplete */}
-        <div className="relative flex items-center gap-2 px-3" ref={boxRef}>
+        {/* -------- Location -------- */}
+        <div
+          ref={boxRef}
+          className="relative flex items-center gap-2 px-3"
+        >
           <FiSearch className="h-5 w-5 text-gray-500" />
           <input
             aria-label="Location"
@@ -92,6 +129,7 @@ export default function SearchBar() {
             placeholder="Where to? Winnipeg, Toronto…"
             className="w-36 md:w-56 bg-transparent outline-none text-sm"
           />
+
           {open && filtered.length > 0 && (
             <ul
               id="city-autocomplete"
@@ -104,11 +142,12 @@ export default function SearchBar() {
                   role="option"
                   aria-selected={i === highlight}
                   className={`px-3 py-2 text-sm cursor-pointer ${
-                    i === highlight ? "bg-gray-100" : "bg-white"
+                    i === highlight
+                      ? "bg-gray-100"
+                      : "bg-white"
                   }`}
                   onMouseEnter={() => setHighlight(i)}
                   onMouseDown={(e) => {
-                    // prevent input blur before click runs
                     e.preventDefault();
                     setLocation(city);
                     setOpen(false);
@@ -124,7 +163,7 @@ export default function SearchBar() {
 
         <div className="h-6 w-px bg-gray-200" />
 
-        {/* Max price */}
+        {/* -------- Max price -------- */}
         <div className="flex items-center gap-2 px-3">
           <FiDollarSign className="h-5 w-5 text-gray-500" />
           <input
@@ -141,7 +180,7 @@ export default function SearchBar() {
 
         <div className="h-6 w-px bg-gray-200" />
 
-        {/* Beds */}
+        {/* -------- Beds -------- */}
         <div className="flex items-center gap-2 px-3">
           <span className="text-gray-500 text-sm">Beds</span>
           <input
@@ -156,10 +195,11 @@ export default function SearchBar() {
           />
         </div>
 
+        {/* -------- Submit -------- */}
         <button
           type="button"
-          className="ml-auto bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-full"
           onClick={submit}
+          className="ml-auto bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-full"
         >
           Search
         </button>

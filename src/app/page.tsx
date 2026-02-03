@@ -1,4 +1,3 @@
-// src/app/page.tsx
 import { prisma } from "@/lib/db";
 import { HOME_CITIES } from "@/config/cities";
 import Section from "@/components/Section";
@@ -16,12 +15,16 @@ function formatPrice(cents: number) {
 }
 
 /* ---------------------------------------------
- * Data
+ * Data (MATCHES YOUR PRISMA SCHEMA)
  * --------------------------------------------*/
 
-async function getApprovedByCity(city: string, limit = 12) {
+async function getVisibleByCity(city: string, limit = 6) {
   return prisma.listing.findMany({
-    where: { status: "APPROVED", city },
+    where: {
+      city,
+      status: "APPROVED",
+      priceCents: { gt: 0 },
+    },
     orderBy: { createdAt: "desc" },
     take: limit,
     include: {
@@ -33,11 +36,18 @@ async function getApprovedByCity(city: string, limit = 12) {
   });
 }
 
-async function getLatestApprovedExcluding(excludeIds: string[], limit = 24) {
+async function getLatestVisibleExcluding(
+  excludeIds: string[],
+  limit = 12
+) {
   return prisma.listing.findMany({
-    where: excludeIds.length
-      ? { status: "APPROVED", id: { notIn: excludeIds } }
-      : { status: "APPROVED" },
+    where: {
+      status: "APPROVED",
+      priceCents: { gt: 0 },
+      ...(excludeIds.length
+        ? { id: { notIn: excludeIds } }
+        : {}),
+    },
     orderBy: { createdAt: "desc" },
     take: limit,
     include: {
@@ -50,14 +60,14 @@ async function getLatestApprovedExcluding(excludeIds: string[], limit = 24) {
 }
 
 /* ---------------------------------------------
- * Mapper
+ * Mapper (ALIGNED WITH QUERY RESULT)
  * --------------------------------------------*/
 
 function toCard(l: {
   id: string;
   title: string | null;
   city: string | null;
-  price: number | null;
+  priceCents: number | null;
   beds: number | null;
   baths: number | null;
   photos: { url: string }[];
@@ -67,8 +77,8 @@ function toCard(l: {
       id: l.id,
       title: l.title ?? "Untitled",
       city: l.city ?? "",
-      imageUrl: l.photos[0]?.url, // ✅ THIS NOW EXISTS
-      priceCents: l.price ?? 0,
+      imageUrl: l.photos[0]?.url,
+      priceCents: l.priceCents ?? 0,
       beds: l.beds ?? 0,
       baths: l.baths ?? 0,
     },
@@ -81,7 +91,7 @@ function toCard(l: {
 
 export default async function Home() {
   const perCityResults = await Promise.all(
-    HOME_CITIES.map(({ city }) => getApprovedByCity(city))
+    HOME_CITIES.map(({ city }) => getVisibleByCity(city))
   );
 
   const shownIds = new Set<string>();
@@ -89,15 +99,18 @@ export default async function Home() {
     rows.forEach((l) => shownIds.add(l.id))
   );
 
-  const latestApproved = await getLatestApprovedExcluding([...shownIds]);
-  const latestToShow = latestApproved.slice(0, 12);
+  const latestVisible = await getLatestVisibleExcluding(
+    [...shownIds],
+    12
+  );
 
   return (
     <main className="min-h-screen">
       {/* Hero */}
       <section className="mx-auto max-w-[1440px] px-4 mt-16">
         <h1 className="text-4xl font-semibold max-w-[40ch]">
-          Smarter rentals with video tours, verified landlords, and instant messaging.
+          Smarter rentals with video tours, verified landlords,
+          and instant messaging.
         </h1>
         <p className="text-gray-600 mt-3 max-w-[60ch]">
           Explore curated homes across Canadian cities.
@@ -114,7 +127,7 @@ export default async function Home() {
             <div key={city} className="mx-auto max-w-[1440px] px-4">
               <Section
                 title={tagline}
-                href={`/listings?city=${encodeURIComponent(city)}`}
+                href={`/search?city=${encodeURIComponent(city)}`}
                 listings={rows.map(toCard)}
               />
             </div>
@@ -123,14 +136,14 @@ export default async function Home() {
       </div>
 
       {/* Latest */}
-      {latestToShow.length > 0 && (
+      {latestVisible.length > 0 && (
         <section className="mx-auto max-w-[1440px] px-4 mt-16">
           <h2 className="text-2xl font-semibold mb-4">
-            Latest approved listings
+            Latest homes
           </h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {latestToShow.map((l) => (
+            {latestVisible.map((l) => (
               <Link
                 key={l.id}
                 href={`/listing/${l.id}`}
@@ -146,13 +159,17 @@ export default async function Home() {
                 </div>
 
                 <div className="p-4">
-                  <div className="text-sm text-gray-500">{l.city}</div>
-                  <div className="font-medium truncate">{l.title}</div>
+                  <div className="text-sm text-gray-500">
+                    {l.city}
+                  </div>
+                  <div className="font-medium truncate">
+                    {l.title}
+                  </div>
                   <div className="text-sm text-gray-600">
                     {l.beds} bd · {l.baths} ba
                   </div>
                   <div className="mt-1 font-semibold">
-                    {formatPrice(l.price ?? 0)}
+                    {formatPrice(l.priceCents ?? 0)}
                   </div>
                 </div>
               </Link>

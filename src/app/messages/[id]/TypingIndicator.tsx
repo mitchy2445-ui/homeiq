@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getSocket } from "@/lib/socket-client";
 
 export default function TypingIndicator({
   conversationId,
@@ -10,29 +11,18 @@ export default function TypingIndicator({
   const [typing, setTyping] = useState(false);
 
   useEffect(() => {
-    let alive = true;
+    const socket = getSocket();
 
-    async function poll() {
-      try {
-        const res = await fetch(
-          `/api/messages/${conversationId}/typing`,
-          { cache: "no-store" }
-        );
-        if (!res.ok) return;
-
-        const data = await res.json();
-        if (alive) setTyping(Boolean(data.isTyping));
-      } catch {
-        // silent
-      }
+    function onTyping(payload: { isTyping: boolean }) {
+      setTyping(payload.isTyping);
     }
 
-    poll();
-    const id = setInterval(poll, 2000);
+    // join conversation room
+    socket.emit("join", conversationId);
+    socket.on("typing", onTyping);
 
     return () => {
-      alive = false;
-      clearInterval(id);
+      socket.off("typing", onTyping);
     };
   }, [conversationId]);
 

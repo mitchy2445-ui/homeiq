@@ -21,7 +21,7 @@ export default async function HostListingsPage() {
       title: true,
       city: true,
       status: true,
-      price: true,
+      priceCents: true,
       beds: true,
       baths: true,
       images: true,
@@ -88,13 +88,23 @@ export default async function HostListingsPage() {
           {listings.map((l) => {
             const imgs = Array.isArray(l.images) ? (l.images as string[]) : [];
             const cover = imgs[0] ?? "/placeholder.svg";
-            const price =
-              typeof l.price === "number" ? `$${(l.price / 100).toFixed(0)}/mo` : "—";
+            
+              const price =
+  typeof l.priceCents === "number"
+    ? `$${(l.priceCents / 100).toFixed(0)}/mo`
+    : "—";
+
             return (
               <li key={l.id} className="rounded-2xl border bg-white overflow-hidden">
                 <Link href={`/listing/${l.id}`} className="block">
                   <div className="relative aspect-[4/3]">
-                    <Image src={cover} alt={l.title} fill className="object-cover" />
+                    <Image
+  src={cover}
+  alt={l.title ?? "Listing photo"}
+  fill
+  className="object-cover"
+/>
+
                   </div>
                 </Link>
                 <div className="p-4">

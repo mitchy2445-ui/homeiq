@@ -8,6 +8,7 @@ type ConversationRowProps = {
   lastMessage: string;
   lastMessageAt: Date | string | null;
   unread: boolean;
+  onOpen: () => void; // ✅ added
 };
 
 export default function ConversationRow({
@@ -16,6 +17,7 @@ export default function ConversationRow({
   lastMessage,
   lastMessageAt,
   unread,
+  onOpen,
 }: ConversationRowProps) {
   const ts = lastMessageAt
     ? new Date(lastMessageAt)
@@ -25,6 +27,7 @@ export default function ConversationRow({
     <li>
       <Link
         href={`/messages/${id}`}
+        onClick={onOpen}
         className="block hover:bg-gray-50 transition"
       >
         <div className="flex items-center gap-4 px-4 py-3">
@@ -73,6 +76,7 @@ export default function ConversationRow({
 
 function formatTimestamp(date: Date) {
   const now = new Date();
+
   const sameDay =
     date.getFullYear() === now.getFullYear() &&
     date.getMonth() === now.getMonth() &&
