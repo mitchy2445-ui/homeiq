@@ -85,16 +85,21 @@ export async function GET(
         maxOccupants: true,
         minLeaseMonths: true,
         furnished: true,
+        smokingAllowed: true,
         idealRenterSummary: true,
         petSummary: true,
         parkingSummary: true,
         laundrySummary: true,
+
+        // Neighborhood Insights fields — all included
+        neighborhoodVibe: true,
+        areaType: true,
+        neighborhoodCommunity: true,
         neighborhoodSafety: true,
         neighborhoodWalkability: true,
-        neighborhoodCommunity: true,
         neighborhoodNoise: true,
-        neighborhoodHighlights: true,
         neighborhoodTransitNotes: true,
+        neighborhoodHighlights: true,
         distanceBusMeters: true,
         distanceGroceryMeters: true,
         distanceSchoolMeters: true,
@@ -102,6 +107,7 @@ export async function GET(
         distancePharmacyMeters: true,
         distanceGymMeters: true,
         accessibility: true,
+
         videoUrl: true,
         images: true,
         photos: {
@@ -183,9 +189,11 @@ export async function PATCH(
 
     const raw = await req.json().catch(() => ({}));
     const body = raw as Record<string, unknown>;
+    console.log("PATCH BODY:", body);
 
     const data: Record<string, unknown> = {};
 
+    // String fields
     const stringFields = [
       "title",
       "description",
@@ -205,6 +213,11 @@ export async function PATCH(
       "rulesNotes",
       "neighborhoodNotes",
       "neighborhoodTransitNotes",
+      "neighborhoodCommunity",
+      "neighborhoodSafety",
+      "neighborhoodWalkability",
+      "neighborhoodNoise",
+      "neighborhoodHighlights",
       "videoUrl",
     ] as const;
 
@@ -212,13 +225,14 @@ export async function PATCH(
       if (key in body) data[key] = toNullableTrimmed(body[key]);
     }
 
+    // Enums
     if ("status" in body) {
       const status = toNullableEnum(body.status, [
         "DRAFT",
         "PENDING",
         "ACTIVE",
         "PAUSED",
-        "INACTIVE"
+        "INACTIVE",
       ]);
       if (status) data.status = status;
     }
@@ -243,10 +257,91 @@ export async function PATCH(
       "NONE",
     ]);
 
+    const neighborhoodVibe = toNullableEnum(body.neighborhoodVibe, [
+      "QUIET",
+      "MODERATE",
+      "BUSY",
+    ]);
+
+    const areaType = toNullableEnum(body.areaType, [
+      "URBAN",
+      "SUBURBAN",
+      "RURAL",
+    ]);
+
     if ("petPolicy" in body) data.petPolicy = petPolicy;
     if ("parkingType" in body) data.parkingType = parkingType;
     if ("laundry" in body) data.laundry = laundry;
+    if ("neighborhoodVibe" in body) data.neighborhoodVibe = neighborhoodVibe;
+    if ("areaType" in body) data.areaType = areaType;
 
+    // Numbers
+    const cap = { min: 0, max: 100_000 };
+    const numericFields = [
+      "beds",
+      "baths",
+      "maxOccupants",
+      "minLeaseMonths",
+      "depositCents",
+      "distanceBusMeters",
+      "distanceGroceryMeters",
+      "distanceSchoolMeters",
+      "distanceParkMeters",
+      "distancePharmacyMeters",
+      "distanceGymMeters",
+    ] as const;
+
+    for (const key of numericFields) {
+      if (key in body) data[key] = toNullableInt(body[key], cap);
+    }
+
+    if ("priceCents" in body) {
+      data.priceCents = toNullableInt(body.priceCents, { min: 0, max: 10_000_000 });
+    }
+
+    // Booleans
+    if ("furnished" in body) {
+      data.furnished = body.furnished === true || body.furnished === false
+        ? Boolean(body.furnished)
+        : null;
+    }
+
+    if ("smokingAllowed" in body) {
+      data.smokingAllowed = body.smokingAllowed === true || body.smokingAllowed === false
+        ? Boolean(body.smokingAllowed)
+        : null;
+    }
+
+    // Date
+    if ("availableFrom" in body) {
+      const rawDate = body.availableFrom;
+      if (!rawDate) data.availableFrom = null;
+      else {
+        const d = new Date(String(rawDate));
+        data.availableFrom = isNaN(d.getTime()) ? null : d;
+      }
+    }
+
+    // JSON fields
+    if ("utilitiesIncluded" in body) {
+      data.utilitiesIncluded = isJson(body.utilitiesIncluded)
+        ? body.utilitiesIncluded
+        : null;
+    }
+
+    if ("accessibility" in body) {
+      const v = body.accessibility;
+      if (v === null) data.accessibility = null;
+      else if (isJson(v)) data.accessibility = v;
+      else if (typeof v === "string") data.accessibility = v.split(",").map(s => s.trim()).filter(Boolean);
+      else
+        return NextResponse.json(
+          { error: "Invalid accessibility format" },
+          { status: 400 }
+        );
+    }
+
+    // Summary fields
     if ("preferredTenantType" in body) {
       const v = toNullableTrimmed(body.preferredTenantType);
       data.idealRenterSummary = v
@@ -291,57 +386,7 @@ export async function PATCH(
           : "Laundry TBD.";
     }
 
-    if ("price" in body && body.price != null) {
-      const n = Number(body.price);
-      data.priceCents = Number.isFinite(n) ? Math.round(n * 100) : null;
-    }
-
-    const cap = { min: 0, max: 100_000 };
-    const numericFields = [
-      "beds",
-      "baths",
-      "maxOccupants",
-      "minLeaseMonths",
-      "depositCents",
-      "distanceBusMeters",
-      "distanceGroceryMeters",
-      "distanceSchoolMeters",
-      "distanceParkMeters",
-      "distancePharmacyMeters",
-      "distanceGymMeters",
-    ] as const;
-
-    for (const key of numericFields) {
-      if (key in body) data[key] = toNullableInt(body[key], cap);
-    }
-
-    if ("availableFrom" in body) {
-      const rawDate = body.availableFrom;
-      if (!rawDate) data.availableFrom = null;
-      else {
-        const d = new Date(String(rawDate));
-        data.availableFrom = isNaN(d.getTime()) ? null : d;
-      }
-    }
-
-    if ("utilitiesIncluded" in body) {
-      data.utilitiesIncluded = isJson(body.utilitiesIncluded)
-        ? body.utilitiesIncluded
-        : null;
-    }
-
-    if ("accessibility" in body) {
-      const v = body.accessibility;
-      if (v === null) data.accessibility = null;
-      else if (isJson(v)) data.accessibility = v;
-      else if (typeof v === "string") data.accessibility = { notes: v };
-      else
-        return NextResponse.json(
-          { error: "Invalid accessibility JSON" },
-          { status: 400 }
-        );
-    }
-
+    // Apply update
     await db.listing.update({
       where: { id },
       data,

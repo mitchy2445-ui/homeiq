@@ -31,9 +31,7 @@ export default function MediaFormClient({ initialPhotos, initialVideoUrl }: Prop
         videoUrl={videoUrl}
         setVideoUrl={setVideoUrl}
       />
-      {/* Hidden fields the server action will read */}
-      <input id="photos-json" name="photosJson" type="hidden" defaultValue="[]" />
-      <input id="video-url" name="videoUrl" type="hidden" defaultValue="" />
+     
     </>
   );
 }

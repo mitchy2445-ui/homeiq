@@ -5,22 +5,20 @@
  */
 export type WizardStep =
   | "basics"
-  | "pricing"
+  | "details"
   | "photos"
   | "video"
   | "neighborhood"
   | "review";
 
-
-export const WIZARD_ORDER = [
+export const WIZARD_ORDER: readonly WizardStep[] = [
   "basics",
-  "pricing",
+  "details",
   "photos",
   "video",
   "neighborhood",
   "review",
 ] as const;
-
 
 /**
  * Base path prefix for all wizard steps.
@@ -53,9 +51,8 @@ export function pathFor(step: WizardStep, listingId?: string): string {
   const query = `?id=${encodeURIComponent(listingId)}`;
 
   switch (step) {
-    case "pricing":
-  return `${BASE}/pricing${query}`;
-
+    case "details":
+      return `${BASE}/details${query}`;
     case "photos":
       return `${BASE}/photos${query}`;
     case "video":

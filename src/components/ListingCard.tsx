@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
 import { Heart } from "lucide-react";
+import Image from "next/image";
 import type { $Enums } from "@prisma/client";
 
 /* ---------------------------------------------
@@ -13,8 +14,8 @@ export type ListingCardData = {
   id: string;
   title: string;
   city: string;
-  imageUrl?: string;
-  images?: string[];
+  imageUrl?: string;          // from homepage toCard fallback
+  images?: string[];          // preferred array (if passed)
   priceCents: number;
   beds: number;
   baths: number;
@@ -33,23 +34,18 @@ export type ListingCardProps =
  * --------------------------------------------*/
 
 export default function ListingCard(props: ListingCardProps) {
-  /* ✅ Hooks FIRST */
   const [index, setIndex] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const startX = useRef<number | null>(null);
 
-  /* ---------------------------------------------
-   * Normalize props
-   * --------------------------------------------*/
+  /* Normalize props */
   const listing =
     "listing" in props ? props.listing : (props as ListingCardData);
 
   const id = listing?.id;
 
-  /* ---------------------------------------------
-   * Load favorite state
-   * --------------------------------------------*/
+  /* Favorite state */
   useEffect(() => {
     if (!id) return;
 
@@ -68,9 +64,7 @@ export default function ListingCard(props: ListingCardProps) {
     };
   }, [id]);
 
-  /* ---------------------------------------------
-   * Skeleton
-   * --------------------------------------------*/
+  /* Skeleton */
   if (!listing?.id) {
     return (
       <div className="w-[260px] rounded-2xl border bg-white p-3">
@@ -81,33 +75,37 @@ export default function ListingCard(props: ListingCardProps) {
     );
   }
 
-  /* ---------------------------------------------
-   * Data
-   * --------------------------------------------*/
+  /* Data – prioritize images array, fallback to single imageUrl */
   const {
     title = "Untitled listing",
     city = "",
-    imageUrl,
-    images = imageUrl ? [imageUrl] : [],
+    images = [],                       // array from DB/component
+    imageUrl,                          // single from homepage
     priceCents = 0,
     beds = 0,
     baths = 0,
     status,
   } = listing;
 
+  // Build photo list: prefer images array, fallback to imageUrl as single-item array
+  const photoList = images.length > 0 
+    ? images 
+    : (imageUrl ? [imageUrl] : []);
+  
+  const hasImages = photoList.length > 0;
+  const currentImage = photoList[index] || "/placeholder-house.jpg"; // only if truly no image
+
   const href = `${props.hrefBase ?? "/listing"}/${id}`;
   const price = Math.round(priceCents / 100);
-  const hasMultiple = images.length > 1;
+  const hasMultiple = photoList.length > 1;
 
-  /* ---------------------------------------------
-   * Favorite toggle
-   * --------------------------------------------*/
+  /* Favorite toggle */
   const toggleFavorite = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
     const next = !isFavorite;
-    setIsFavorite(next); // optimistic UI
+    setIsFavorite(next);
 
     await fetch("/api/favorites", {
       method: next ? "POST" : "DELETE",
@@ -117,14 +115,12 @@ export default function ListingCard(props: ListingCardProps) {
     });
   };
 
-  /* ---------------------------------------------
-   * Carousel helpers
-   * --------------------------------------------*/
+  /* Carousel helpers */
   const next = () =>
-    hasMultiple && setIndex((i) => (i + 1) % images.length);
+    hasMultiple && setIndex((i) => (i + 1) % photoList.length);
 
   const prev = () =>
-    hasMultiple && setIndex((i) => (i - 1 + images.length) % images.length);
+    hasMultiple && setIndex((i) => (i - 1 + photoList.length) % photoList.length);
 
   const onTouchStart = (e: React.TouchEvent) => {
     startX.current = e.touches[0].clientX;
@@ -137,9 +133,7 @@ export default function ListingCard(props: ListingCardProps) {
     startX.current = null;
   };
 
-  /* ---------------------------------------------
-   * Render
-   * --------------------------------------------*/
+  /* Render */
   return (
     <Link
       href={href}
@@ -153,30 +147,23 @@ export default function ListingCard(props: ListingCardProps) {
         hover:ring-1 hover:ring-emerald-700
       "
     >
-      {/* Image */}
+      {/* Image / Carousel */}
       <div
         className="relative aspect-[4/3] overflow-hidden bg-gray-100"
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        {images.length > 0 ? (
-          <img
-            src={images[index]}
-            alt={title}
-            loading="lazy"
-            onLoad={() => setLoaded(true)}
-            className={`h-full w-full object-cover transition-opacity duration-300 ${
-              loaded ? "opacity-100" : "opacity-0"
-            }`}
-          />
-        ) : (
-          <div className="grid h-full w-full place-items-center text-sm text-gray-400">
-            No photo
-          </div>
-        )}
+        <Image
+          src={currentImage}
+          alt={title}
+          fill
+          className="object-cover transition-opacity duration-300"
+          sizes="(max-width: 640px) 100vw, 260px"
+          onLoad={() => setLoaded(true)}
+          priority={index === 0}
+        />
 
-        {/* ❤️ Favorite */}
+        {/* Favorite button */}
         <button
           onClick={toggleFavorite}
           aria-label="Toggle favorite"
@@ -194,7 +181,7 @@ export default function ListingCard(props: ListingCardProps) {
           />
         </button>
 
-        {/* Badge */}
+        {/* Status badge */}
         {status === "APPROVED" && (
           <span className="absolute left-2 top-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-medium shadow">
             Guest favorite

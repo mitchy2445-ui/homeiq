@@ -1,831 +1,467 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Home,
+  Thermometer,
+  Volume2,
+  Sun,
+  FileText,
+  Shield,
+  Users,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
-/** JSON value type for safe parsing/serialization (no `any`) */
-type Json =
-  | null
-  | boolean
-  | number
-  | string
-  | Json[]
-  | { [key: string]: Json };
-
-type EnumVibe = "QUIET" | "MODERATE" | "BUSY";
-type EnumArea = "URBAN" | "SUBURBAN" | "RURAL";
-
-// detail enums
-type EnumNoise = "VERY_QUIET" | "MOSTLY_QUIET" | "AVERAGE" | "LIVELY";
-type EnumLight = "LOW" | "MODERATE" | "BRIGHT" | "VERY_BRIGHT";
-
-const VIBE_OPTIONS: ReadonlyArray<"" | EnumVibe> = ["", "QUIET", "MODERATE", "BUSY"];
-const AREA_OPTIONS: ReadonlyArray<"" | EnumArea> = ["", "URBAN", "SUBURBAN", "RURAL"];
-const NOISE_OPTIONS: ReadonlyArray<"" | EnumNoise> = [
-  "",
-  "VERY_QUIET",
-  "MOSTLY_QUIET",
-  "AVERAGE",
-  "LIVELY",
-];
-const LIGHT_OPTIONS: ReadonlyArray<"" | EnumLight> = [
-  "",
-  "LOW",
-  "MODERATE",
-  "BRIGHT",
-  "VERY_BRIGHT",
-];
-
-// Heating / cooling tick options
-const HEATING_OPTIONS = [
-  { id: "BASEBOARD", label: "Baseboard" },
-  { id: "FORCED_AIR", label: "Forced air" },
-  { id: "RADIANT", label: "Radiant / in-floor" },
-  { id: "ELECTRIC", label: "Electric heaters" },
-  { id: "GAS", label: "Gas furnace" },
-  { id: "HEAT_PUMP", label: "Heat pump" },
-  { id: "FIREPLACE", label: "Fireplace (gas / electric)" },
-] as const;
-
-const COOLING_OPTIONS = [
-  { id: "CENTRAL_AC", label: "Central AC" },
-  { id: "WINDOW_UNIT", label: "Window AC unit(s)" },
-  { id: "PORTABLE_UNIT", label: "Portable AC unit(s)" },
-  { id: "CEILING_FANS", label: "Ceiling / box fans" },
-  { id: "NO_COOLING", label: "No dedicated cooling" },
-] as const;
-
-// IDs we store in interiorNotes (comma-separated)
-const INTERIOR_FEATURES = [
-  { id: "UPDATED_KITCHEN", label: "Updated / modern kitchen" },
-  { id: "UPDATED_BATHROOM", label: "Updated bathroom" },
-  { id: "STAINLESS_APPLIANCES", label: "Stainless appliances" },
-  { id: "HARDWOOD_FLOORS", label: "Hardwood / laminate floors" },
-  { id: "CARPET_BEDROOMS", label: "Carpet in bedrooms" },
-  { id: "LARGE_WINDOWS", label: "Large windows / great light" },
-  { id: "HIGH_CEILINGS", label: "High ceilings" },
-  { id: "IN_UNIT_STORAGE", label: "In-unit storage / walk-in closet" },
-  { id: "BALCONY_PATIO", label: "Balcony / patio" },
-] as const;
-
-// IDs we store in buildingAmenitiesNotes (comma-separated)
-const AMENITY_FEATURES = [
-  { id: "ELEVATOR", label: "Elevator" },
-  { id: "GYM", label: "Gym / fitness room" },
-  { id: "POOL", label: "Pool / hot tub" },
-  { id: "ROOFTOP", label: "Rooftop / shared patio" },
-  { id: "PARTY_ROOM", label: "Lounge / party room" },
-  { id: "BIKE_STORAGE", label: "Bike storage" },
-  { id: "STORAGE_LOCKERS", label: "Storage lockers" },
-  { id: "VISITOR_PARKING", label: "Visitor parking" },
-  { id: "UNDERGROUND_PARKING", label: "Underground parking" },
-  { id: "SECURITY", label: "Security cameras / concierge" },
-  { id: "ON_SITE_MANAGER", label: "On-site manager / caretaker" },
-  { id: "SNOW_REMOVAL", label: "Snow removal included" },
-  { id: "LAWN_CARE", label: "Lawn / yard care included" },
-  { id: "WIFI_INCLUDED", label: "Wi-Fi included" },
-] as const;
-
-type Initial = {
-  smokingAllowed: boolean;
-  heating: string | null;
-  cooling: string | null;
-
-  noiseLevel?: EnumNoise | null;
-  naturalLight?: EnumLight | null;
-
-  // will store comma-separated IDs for selected options
-  interiorNotes?: string | null;
-  buildingAmenitiesNotes?: string | null;
-  rulesNotes?: string | null;
-
-  accessibility: Json | null;
-  neighborhoodVibe: EnumVibe | null;
-  areaType: EnumArea | null;
-  distanceBusMeters: number | "";
-  distanceGroceryMeters: number | "";
-  distanceSchoolMeters: number | "";
-  distanceParkMeters: number | "";
-  distancePharmacyMeters: number | "";
-  distanceGymMeters: number | "";
+type UtilitiesIncluded = {
+  heat: boolean;
+  water: boolean;
+  electricity: boolean;
+  internet: boolean;
 };
 
-// helper: split existing heating/cooling string back into selected IDs + "other"
-function splitInitialOptions(
-  raw: string | null | undefined,
-  options: readonly { id: string; label: string }[]
-): { selected: string[]; other: string } {
-  if (!raw) return { selected: [], other: "" };
+type FormData = {
+  description: string;
+  houseRules: string;
+  rulesNotes: string;
 
-  const labelToId = new Map(
-    options.map((o) => [o.label.toLowerCase(), o.id])
-  );
+  heating: string;
+  cooling: string;
+  noiseLevel: string;
+  naturalLight: string;
+  interiorNotes: string;
+  buildingAmenitiesNotes: string;
 
-  const parts = raw
-    .split(/[;,]/)
-    .map((p) => p.trim())
-    .filter(Boolean);
+  parkingType: string;
+  petPolicy: string;
+  laundry: string;
 
-  const selected: string[] = [];
-  const otherParts: string[] = [];
+  utilitiesIncluded: UtilitiesIncluded;
+};
 
-  for (const part of parts) {
-    const id = labelToId.get(part.toLowerCase());
-    if (id) {
-      if (!selected.includes(id)) selected.push(id);
-    } else {
-      otherParts.push(part);
-    }
-  }
+const NOISE_LEVELS = [
+  { value: "VERY_QUIET", label: "Very quiet" },
+  { value: "MOSTLY_QUIET", label: "Mostly quiet" },
+  { value: "AVERAGE", label: "Average" },
+  { value: "LIVELY", label: "Lively" },
+] as const;
 
-  return {
-    selected,
-    other: otherParts.join("; "),
-  };
-}
+const LIGHT_LEVELS = [
+  { value: "LOW", label: "Low" },
+  { value: "MODERATE", label: "Moderate" },
+  { value: "BRIGHT", label: "Bright" },
+  { value: "VERY_BRIGHT", label: "Very bright" },
+] as const;
 
-function buildOptionText(
-  ids: string[],
-  other: string,
-  options: readonly { id: string; label: string }[]
-): string | null {
-  const labels = options
-    .filter((o) => ids.includes(o.id))
-    .map((o) => o.label);
+const PARKING_OPTIONS = [
+  { value: "STREET", label: "Street parking" },
+  { value: "ON_SITE", label: "On-site parking" },
+  { value: "NONE", label: "No parking" },
+] as const;
 
-  const trimmedOther = other.trim();
-  if (trimmedOther) labels.push(trimmedOther);
+const PET_OPTIONS = [
+  { value: "NONE", label: "No pets" },
+  { value: "CATS", label: "Cats only" },
+  { value: "DOGS", label: "Dogs only" },
+  { value: "CATS_AND_DOGS", label: "Cats & dogs OK" },
+  { value: "RESTRICTED", label: "With restrictions" },
+] as const;
 
-  if (!labels.length) return null;
-  return labels.join("; ");
-}
+const LAUNDRY_OPTIONS = [
+  { value: "IN_UNIT", label: "In-unit" },
+  { value: "SHARED", label: "Shared" },
+  { value: "NONE", label: "None" },
+] as const;
 
-export default function DetailsForm({
+export default function DetailsPage({
   listingId,
-  initial,
+  initialData,
 }: {
   listingId: string;
-  initial: Initial;
+  initialData?: Partial<FormData> | null;
 }) {
   const router = useRouter();
-  const [error, setError] = useState<string>("");
-  const [busy, setBusy] = useState(false);
 
-  // Normalize accessibility from Json into a simple object
-  const initialAccessibility =
-    initial.accessibility &&
-    typeof initial.accessibility === "object" &&
-    !Array.isArray(initial.accessibility)
-      ? (initial.accessibility as Record<string, Json>)
-      : {};
+  const [form, setForm] = useState<FormData>({
+    description: initialData?.description ?? "",
+    houseRules: initialData?.houseRules ?? "",
+    rulesNotes: initialData?.rulesNotes ?? "",
 
-  // Parse the saved comma-separated lists into arrays of IDs
-  const parsedInterior = (initial.interiorNotes ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const parsedAmenities = (initial.buildingAmenitiesNotes ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+    heating: initialData?.heating ?? "",
+    cooling: initialData?.cooling ?? "",
+    noiseLevel: initialData?.noiseLevel ?? "",
+    naturalLight: initialData?.naturalLight ?? "",
+    interiorNotes: initialData?.interiorNotes ?? "",
+    buildingAmenitiesNotes: initialData?.buildingAmenitiesNotes ?? "",
 
-  // Parse previous heating / cooling strings into options + other
-  const heatingInit = splitInitialOptions(initial.heating, HEATING_OPTIONS);
-  const coolingInit = splitInitialOptions(initial.cooling, COOLING_OPTIONS);
+    parkingType: initialData?.parkingType ?? "",
+    petPolicy: initialData?.petPolicy ?? "",
+    laundry: initialData?.laundry ?? "",
 
-  const [form, setForm] = useState({
-    // comfort & environment
-    smokingAllowed: Boolean(initial.smokingAllowed),
-    heatingOptions: heatingInit.selected as string[],
-    heatingOther: heatingInit.other,
-    coolingOptions: coolingInit.selected as string[],
-    coolingOther: coolingInit.other,
-    noiseLevel: (initial.noiseLevel ?? "") as "" | EnumNoise,
-    naturalLight: (initial.naturalLight ?? "") as "" | EnumLight,
-
-    // interior & amenities: list of selected IDs
-    interiorFeatures: parsedInterior as string[],
-    amenitiesFeatures: parsedAmenities as string[],
-    interiorOther: "", // optional free-text
-    amenitiesOther: "",
-
-    // accessibility (booleans + notes -> serialize to Json)
-    accessStepFree: Boolean(initialAccessibility.stepFree),
-    accessElevator: Boolean(initialAccessibility.elevator),
-    accessWideDoors: Boolean(initialAccessibility.wideDoors),
-    accessBathroom: Boolean(initialAccessibility.accessibleBathroom),
-    accessParking: Boolean(initialAccessibility.accessibleParking),
-    accessNotes:
-      typeof initialAccessibility.notes === "string"
-        ? (initialAccessibility.notes as string)
-        : "",
-
-    // extra descriptive notes
-    rulesNotes: initial.rulesNotes ?? "",
-
-    // neighborhood & proximity
-    neighborhoodVibe: (initial.neighborhoodVibe ?? "") as "" | EnumVibe,
-    areaType: (initial.areaType ?? "") as "" | EnumArea,
-    distanceBusMeters:
-      initial.distanceBusMeters === "" || initial.distanceBusMeters == null
-        ? ""
-        : String(initial.distanceBusMeters),
-    distanceGroceryMeters:
-      initial.distanceGroceryMeters === "" ||
-      initial.distanceGroceryMeters == null
-        ? ""
-        : String(initial.distanceGroceryMeters),
-    distanceSchoolMeters:
-      initial.distanceSchoolMeters === "" || initial.distanceSchoolMeters == null
-        ? ""
-        : String(initial.distanceSchoolMeters),
-    distanceParkMeters:
-      initial.distanceParkMeters === "" || initial.distanceParkMeters == null
-        ? ""
-        : String(initial.distanceParkMeters),
-    distancePharmacyMeters:
-      initial.distancePharmacyMeters === "" ||
-      initial.distancePharmacyMeters == null
-        ? ""
-        : String(initial.distancePharmacyMeters),
-    distanceGymMeters:
-      initial.distanceGymMeters === "" || initial.distanceGymMeters == null
-        ? ""
-        : String(initial.distanceGymMeters),
+    utilitiesIncluded: {
+      heat: initialData?.utilitiesIncluded?.heat ?? false,
+      water: initialData?.utilitiesIncluded?.water ?? false,
+      electricity: initialData?.utilitiesIncluded?.electricity ?? false,
+      internet: initialData?.utilitiesIncluded?.internet ?? false,
+    },
   });
 
-  function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
-    setForm((f) => ({ ...f, [key]: value }));
-  }
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-  function toIntOrNull(v: string) {
-    if (v === "" || v == null) return null;
-    const n = Number(v);
-    if (!Number.isFinite(n)) return null;
-    return Math.trunc(n);
-  }
+  // Auto-save on change (debounced in real app — simplified here for clarity)
+  useEffect(() => {
+    const save = async () => {
+      if (saving) return;
+      setSaving(true);
 
-  function clampMetersStr(v: string): number | null {
-    const n = toIntOrNull(v);
-    if (n == null) return null;
-    if (n < 0) return 0;
-    if (n > 100_000) return 100_000; // 100km cap
-    return n;
-  }
+      try {
+        const payload = {
+          description: form.description.trim() || null,
+          houseRules: form.houseRules.trim() || null,
+          rulesNotes: form.rulesNotes.trim() || null,
 
-  function toggleId(list: string[], id: string, checked: boolean): string[] {
-    if (checked) {
-      if (list.includes(id)) return list;
-      return [...list, id];
-    }
-    return list.filter((v) => v !== id);
-  }
+          heating: form.heating.trim() || null,
+          cooling: form.cooling.trim() || null,
+          noiseLevel: form.noiseLevel || null,
+          naturalLight: form.naturalLight || null,
+          interiorNotes: form.interiorNotes.trim() || null,
+          buildingAmenitiesNotes: form.buildingAmenitiesNotes.trim() || null,
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    setBusy(true);
+          parkingType: form.parkingType || null,
+          petPolicy: form.petPolicy || null,
+          laundry: form.laundry || null,
 
-    // Build structured accessibility JSON from the form
-    const accessibility: Json = {
-      stepFree: form.accessStepFree,
-      elevator: form.accessElevator,
-      wideDoors: form.accessWideDoors,
-      accessibleBathroom: form.accessBathroom,
-      accessibleParking: form.accessParking,
-      notes: form.accessNotes.trim() || null,
-    };
+          utilitiesIncluded: form.utilitiesIncluded,
+        };
 
-    // Convert selected IDs into comma-separated strings for now
-    const interiorNotes =
-      [
-        ...form.interiorFeatures,
-        ...(form.interiorOther.trim()
-          ? [`OTHER:${form.interiorOther.trim()}`]
-          : []),
-      ].join(",") || null;
-
-    const buildingAmenitiesNotes =
-      [
-        ...form.amenitiesFeatures,
-        ...(form.amenitiesOther.trim()
-          ? [`OTHER:${form.amenitiesOther.trim()}`]
-          : []),
-      ].join(",") || null;
-
-    // Build heating / cooling strings from selected options + "other"
-    const heatingText = buildOptionText(
-      form.heatingOptions,
-      form.heatingOther,
-      HEATING_OPTIONS
-    );
-    const coolingText = buildOptionText(
-      form.coolingOptions,
-      form.coolingOther,
-      COOLING_OPTIONS
-    );
-
-    try {
-      const res = await fetch(
-        `/api/host/listings/${encodeURIComponent(listingId)}`,
-        {
+        const res = await fetch(`/api/host/listings/${listingId}`, {
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            // comfort & environment
-            smokingAllowed: Boolean(form.smokingAllowed),
-            heating: heatingText,
-            cooling: coolingText,
-            noiseLevel: form.noiseLevel || null,
-            naturalLight: form.naturalLight || null,
+          body: JSON.stringify(payload),
+        });
 
-            // interior & amenities, saved as strings for now
-            interiorNotes,
-            buildingAmenitiesNotes,
-            rulesNotes: form.rulesNotes.trim() || null,
-
-            // accessibility JSON
-            accessibility,
-
-            // neighborhood & proximity
-            neighborhoodVibe: form.neighborhoodVibe || null,
-            areaType: form.areaType || null,
-            distanceBusMeters: clampMetersStr(form.distanceBusMeters),
-            distanceGroceryMeters: clampMetersStr(form.distanceGroceryMeters),
-            distanceSchoolMeters: clampMetersStr(form.distanceSchoolMeters),
-            distanceParkMeters: clampMetersStr(form.distanceParkMeters),
-            distancePharmacyMeters: clampMetersStr(form.distancePharmacyMeters),
-            distanceGymMeters: clampMetersStr(form.distanceGymMeters),
-          }),
-        }
-      );
-
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(body?.error ?? "Failed to save details.");
-        setBusy(false);
-        return;
+        if (!res.ok) throw new Error("Save failed");
+      } catch (err) {
+        setError("Failed to save — try again");
+        console.error(err);
+      } finally {
+        setSaving(false);
       }
+    };
 
-      // Go to next step: Photos
-      router.replace(
-        `/landlord/new/photos?id=${encodeURIComponent(listingId)}`
-      );
-    } catch {
-      setError("Network error. Please try again.");
-      setBusy(false);
-    }
-  }
+    const timer = setTimeout(save, 800);
+    return () => clearTimeout(timer);
+  }, [form, listingId, saving]);
+
+  const update = <K extends keyof FormData>(key: K, value: FormData[K]) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const updateUtility = (key: keyof UtilitiesIncluded, checked: boolean) => {
+    setForm((prev) => ({
+      ...prev,
+      utilitiesIncluded: { ...prev.utilitiesIncluded, [key]: checked },
+    }));
+  };
+
+  const isComplete =
+    form.description.trim() &&
+    form.houseRules.trim() &&
+    form.parkingType &&
+    form.petPolicy &&
+    form.laundry;
 
   return (
-    <form className="space-y-8" onSubmit={onSubmit} noValidate>
-      {error && (
-        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      {/* Comfort & environment */}
-      <section className="space-y-4 rounded-xl border bg-white px-4 py-4 sm:px-5 sm:py-5">
-        <div>
-          <h2 className="text-sm font-semibold">Comfort & environment</h2>
-          <p className="mt-1 text-xs text-gray-500">
-            Tell renters how the home handles heat, cold, light, and everyday
-            comfort.
+    <div className="min-h-screen bg-neutral-50/40">
+      <div className="mx-auto max-w-4xl px-5 sm:px-8 py-12 lg:py-16 space-y-16">
+        {/* Header - exact match to Basics */}
+        <header className="space-y-4 max-w-2xl">
+          <div className="text-sm font-medium tracking-wide text-neutral-500 uppercase">
+            Step 2 of 5 · Details
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-neutral-900">
+            Tell renters what it’s like to live here
+          </h1>
+          <p className="text-lg text-neutral-600">
+            Describe the space, comfort, rules, and what’s included.
           </p>
-        </div>
+        </header>
 
-        {/* Heating / cooling as tickable options */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <div className="text-sm font-medium">Heating</div>
-            <div className="grid grid-cols-1 gap-2">
-              {HEATING_OPTIONS.map((opt) => (
-                <label
-                  key={opt.id}
-                  className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs sm:text-sm"
-                >
-                  <input
-                    type="checkbox"
-                    checked={form.heatingOptions.includes(opt.id)}
-                    onChange={(e) =>
-                      set(
-                        "heatingOptions",
-                        toggleId(
-                          form.heatingOptions,
-                          opt.id,
-                          e.target.checked
-                        )
-                      )
-                    }
-                  />
-                  {opt.label}
-                </label>
-              ))}
+        {/* Section 1: Description */}
+        <section className="space-y-8">
+          <div className="flex items-center gap-3">
+            <FileText className="h-6 w-6 text-neutral-700" />
+            <h2 className="text-2xl font-semibold">Description</h2>
+          </div>
+
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="description" className="text-sm font-medium text-neutral-700">
+                Full description
+              </Label>
+              <Textarea
+                id="description"
+                placeholder="A bright two-bedroom apartment with large windows and hardwood floors. Located steps from shops, parks, and transit — perfect for professionals or small families..."
+                value={form.description}
+                onChange={(e) => update("description", e.target.value)}
+                className="min-h-[160px] rounded-xl border border-neutral-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+              />
             </div>
-            <Input
-              className="mt-1"
-              placeholder="Other heating details (optional)"
-              value={form.heatingOther}
-              onChange={(e) => set("heatingOther", e.target.value)}
-            />
-          </div>
 
-          <div className="space-y-2">
-            <div className="text-sm font-medium">Cooling</div>
-            <div className="grid grid-cols-1 gap-2">
-              {COOLING_OPTIONS.map((opt) => (
-                <label
-                  key={opt.id}
-                  className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs sm:text-sm"
-                >
-                  <input
-                    type="checkbox"
-                    checked={form.coolingOptions.includes(opt.id)}
-                    onChange={(e) =>
-                      set(
-                        "coolingOptions",
-                        toggleId(
-                          form.coolingOptions,
-                          opt.id,
-                          e.target.checked
-                        )
-                      )
-                    }
-                  />
-                  {opt.label}
-                </label>
-              ))}
+            <div className="space-y-2">
+              <Label htmlFor="houseRules" className="text-sm font-medium text-neutral-700">
+                House rules
+              </Label>
+              <Textarea
+                id="houseRules"
+                placeholder="No smoking inside, no parties, quiet hours 10 PM – 8 AM, etc."
+                value={form.houseRules}
+                onChange={(e) => update("houseRules", e.target.value)}
+                className="min-h-[120px] rounded-xl border border-neutral-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+              />
             </div>
-            <Input
-              className="mt-1"
-              placeholder="Other cooling details (optional)"
-              value={form.coolingOther}
-              onChange={(e) => set("coolingOther", e.target.value)}
-            />
-          </div>
-        </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div>
-            <div className="text-sm font-medium">Noise level</div>
-            <select
-              className="mt-2 block w-full rounded-md border px-3 py-2 text-sm"
-              value={form.noiseLevel}
-              onChange={(e) =>
-                set("noiseLevel", e.target.value as "" | EnumNoise)
-              }
-            >
-              {NOISE_OPTIONS.map((v) => (
-                <option key={v || "blank"} value={v}>
-                  {v === ""
-                    ? "Select…"
-                    : v === "VERY_QUIET"
-                    ? "Very quiet"
-                    : v === "MOSTLY_QUIET"
-                    ? "Mostly quiet"
-                    : v === "AVERAGE"
-                    ? "Average"
-                    : "Lively / busy"}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-xs text-gray-500">
-              Based on typical daytime conditions.
-            </p>
+            <div className="space-y-2">
+              <Label htmlFor="rulesNotes" className="text-sm font-medium text-neutral-700">
+                Additional notes
+              </Label>
+              <Textarea
+                id="rulesNotes"
+                placeholder="Shoes off at door, garbage sorting required..."
+                value={form.rulesNotes}
+                onChange={(e) => update("rulesNotes", e.target.value)}
+                className="min-h-[100px] rounded-xl border border-neutral-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Section 2: Comfort */}
+        <section className="space-y-8">
+          <div className="flex items-center gap-3">
+            <Home className="h-6 w-6 text-neutral-700" />
+            <h2 className="text-2xl font-semibold">Comfort & environment</h2>
           </div>
 
-          <div>
-            <div className="text-sm font-medium">Natural light</div>
-            <select
-              className="mt-2 block w-full rounded-md border px-3 py-2 text-sm"
-              value={form.naturalLight}
-              onChange={(e) =>
-                set("naturalLight", e.target.value as "" | EnumLight)
-              }
-            >
-              {LIGHT_OPTIONS.map((v) => (
-                <option key={v || "blank"} value={v}>
-                  {v === ""
-                    ? "Select…"
-                    : v === "LOW"
-                    ? "Low"
-                    : v === "MODERATE"
-                    ? "Moderate"
-                    : v === "BRIGHT"
-                    ? "Bright"
-                    : "Very bright"}
-                </option>
-              ))}
-            </select>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor="heating" className="text-sm font-medium text-neutral-700">
+                Heating
+              </Label>
+              <Input
+                id="heating"
+                placeholder="Forced air, baseboard, in-floor..."
+                value={form.heating}
+                onChange={(e) => update("heating", e.target.value)}
+                className="rounded-xl border border-neutral-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="cooling" className="text-sm font-medium text-neutral-700">
+                Cooling
+              </Label>
+              <Input
+                id="cooling"
+                placeholder="Central AC, window units, fans..."
+                value={form.cooling}
+                onChange={(e) => update("cooling", e.target.value)}
+                className="rounded-xl border border-neutral-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-neutral-700">Noise level</Label>
+              <div className="grid grid-cols-2 gap-3">
+                {NOISE_LEVELS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => update("noiseLevel", opt.value)}
+                    className={cn(
+                      "p-4 rounded-xl border-2 text-center text-sm font-medium transition-all",
+                      form.noiseLevel === opt.value
+                        ? "border-emerald-600 bg-emerald-50/50 shadow-sm"
+                        : "border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-neutral-700">Natural light</Label>
+              <div className="grid grid-cols-2 gap-3">
+                {LIGHT_LEVELS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => update("naturalLight", opt.value)}
+                    className={cn(
+                      "p-4 rounded-xl border-2 text-center text-sm font-medium transition-all",
+                      form.naturalLight === opt.value
+                        ? "border-emerald-600 bg-emerald-50/50 shadow-sm"
+                        : "border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="sm:col-span-2 lg:col-span-3 space-y-2">
+              <Label htmlFor="interiorNotes" className="text-sm font-medium text-neutral-700">
+                Interior notes
+              </Label>
+              <Textarea
+                id="interiorNotes"
+                placeholder="Hardwood floors, updated kitchen, high ceilings..."
+                value={form.interiorNotes}
+                onChange={(e) => update("interiorNotes", e.target.value)}
+                className="min-h-[100px] rounded-xl border border-neutral-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+              />
+            </div>
+
+            <div className="sm:col-span-2 lg:col-span-3 space-y-2">
+              <Label htmlFor="buildingAmenitiesNotes" className="text-sm font-medium text-neutral-700">
+                Building amenities
+              </Label>
+              <Textarea
+                id="buildingAmenitiesNotes"
+                placeholder="Elevator, gym, rooftop terrace, bike storage..."
+                value={form.buildingAmenitiesNotes}
+                onChange={(e) => update("buildingAmenitiesNotes", e.target.value)}
+                className="min-h-[100px] rounded-xl border border-neutral-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Section 3: Policies */}
+        <section className="space-y-8">
+          <div className="flex items-center gap-3">
+            <Shield className="h-6 w-6 text-neutral-700" />
+            <h2 className="text-2xl font-semibold">Policies</h2>
           </div>
 
-          <label className="mt-1 flex items-center gap-2 rounded-md border px-3 py-2 text-sm sm:mt-6">
-            <input
-              type="checkbox"
-              checked={form.smokingAllowed}
-              onChange={(e) => set("smokingAllowed", e.target.checked)}
-            />
-            Smoking allowed inside
-          </label>
-        </div>
-      </section>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-neutral-700">Parking</Label>
+              <div className="grid grid-cols-1 gap-2">
+                {PARKING_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => update("parkingType", opt.value)}
+                    className={cn(
+                      "p-4 rounded-xl border-2 text-center text-sm font-medium transition-all",
+                      form.parkingType === opt.value
+                        ? "border-emerald-600 bg-emerald-50/50 shadow-sm"
+                        : "border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-      {/* Interior & amenities */}
-      <section className="space-y-4 rounded-xl border bg-white px-4 py-4 sm:px-5 sm:py-5">
-        <div>
-          <h2 className="text-sm font-semibold">Interior & amenities</h2>
-          <p className="mt-1 text-xs text-gray-500">
-            Tick everything that&apos;s included. This helps your listing feel
-            detailed and professional.
-          </p>
-        </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-neutral-700">Pet policy</Label>
+              <div className="grid grid-cols-1 gap-2">
+                {PET_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => update("petPolicy", opt.value)}
+                    className={cn(
+                      "p-4 rounded-xl border-2 text-center text-sm font-medium transition-all",
+                      form.petPolicy === opt.value
+                        ? "border-emerald-600 bg-emerald-50/50 shadow-sm"
+                        : "border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        <div className="space-y-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Interior features
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-neutral-700">Laundry</Label>
+              <div className="grid grid-cols-1 gap-2">
+                {LAUNDRY_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => update("laundry", opt.value)}
+                    className={cn(
+                      "p-4 rounded-xl border-2 text-center text-sm font-medium transition-all",
+                      form.laundry === opt.value
+                        ? "border-emerald-600 bg-emerald-50/50 shadow-sm"
+                        : "border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {INTERIOR_FEATURES.map((feat) => (
+        </section>
+
+        {/* Section 4: Utilities */}
+        <section className="space-y-8">
+          <div className="flex items-center gap-3">
+            <Users className="h-6 w-6 text-neutral-700" />
+            <h2 className="text-2xl font-semibold">Utilities included</h2>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {(["heat", "water", "electricity", "internet"] as const).map((util) => (
               <label
-                key={feat.id}
-                className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs sm:text-sm"
+                key={util}
+                className={cn(
+                  "flex items-center gap-3 p-5 rounded-xl border-2 transition-all cursor-pointer",
+                  form.utilitiesIncluded[util]
+                    ? "border-emerald-600 bg-emerald-50/50 shadow-sm"
+                    : "border-neutral-200 hover:border-neutral-300 hover:bg-white"
+                )}
               >
-                <input
-                  type="checkbox"
-                  checked={form.interiorFeatures.includes(feat.id)}
-                  onChange={(e) =>
-                    set(
-                      "interiorFeatures",
-                      toggleId(
-                        form.interiorFeatures,
-                        feat.id,
-                        e.target.checked
-                      )
-                    )
-                  }
+                <Checkbox
+                  checked={form.utilitiesIncluded[util]}
+                  onCheckedChange={(checked) => updateUtility(util, !!checked)}
+                  className="data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
                 />
-                {feat.label}
+                <span className="font-medium capitalize">{util}</span>
               </label>
             ))}
           </div>
-          <div>
-            <label className="text-xs font-medium" htmlFor="interiorOther">
-              Other interior details (optional)
-            </label>
-            <Input
-              id="interiorOther"
-              className="mt-2"
-              value={form.interiorOther}
-              onChange={(e) => set("interiorOther", e.target.value)}
-              placeholder="E.g., feature wall, smart thermostat, soundproofing…"
-            />
+        </section>
+
+        {/* Footer - exact match to Basics */}
+        <footer className="pt-12 border-t flex items-center justify-between">
+          <div className="text-sm text-neutral-500">
+            {saving ? "Saving…" : "Changes saved automatically"}
           </div>
-        </div>
 
-        <div className="space-y-3 pt-2">
-          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Building amenities & services
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {AMENITY_FEATURES.map((feat) => (
-              <label
-                key={feat.id}
-                className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs sm:text-sm"
-              >
-                <input
-                  type="checkbox"
-                  checked={form.amenitiesFeatures.includes(feat.id)}
-                  onChange={(e) =>
-                    set(
-                      "amenitiesFeatures",
-                      toggleId(
-                        form.amenitiesFeatures,
-                        feat.id,
-                        e.target.checked
-                      )
-                    )
-                  }
-                />
-                {feat.label}
-              </label>
-            ))}
-          </div>
-          <div>
-            <label className="text-xs font-medium" htmlFor="amenitiesOther">
-              Other amenities / services (optional)
-            </label>
-            <Input
-              id="amenitiesOther"
-              className="mt-2"
-              value={form.amenitiesOther}
-              onChange={(e) => set("amenitiesOther", e.target.value)}
-              placeholder="E.g., package room, coworking lounge, secure bike room…"
-            />
-          </div>
-        </div>
-      </section>
+          <Button
+            size="lg"
+            disabled={!isComplete || saving}
+            onClick={() => router.push(`/host/media?id=${listingId}`)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-10 py-6 text-base font-medium transition min-w-[180px]"
+          >
+            Continue
+          </Button>
+        </footer>
 
-      {/* House rules */}
-      <section className="space-y-4 rounded-xl border bg-white px-4 py-4 sm:px-5 sm:py-5">
-        <div>
-          <h2 className="text-sm font-semibold">House rules & expectations</h2>
-          <p className="mt-1 text-xs text-gray-500">
-            Be clear about how renters should treat your home and common areas.
-          </p>
-        </div>
-
-        <div>
-          <label className="text-sm font-medium" htmlFor="rulesNotes">
-            Additional house rules
-          </label>
-          <textarea
-            id="rulesNotes"
-            className="mt-2 w-full min-h-24 rounded-md border px-3 py-2 text-sm"
-            value={form.rulesNotes}
-            onChange={(e) => set("rulesNotes", e.target.value)}
-            placeholder="E.g., quiet hours, no parties, balcony use, garbage days, shared laundry etiquette…"
-          />
-        </div>
-      </section>
-
-      {/* Accessibility */}
-      <section className="space-y-4 rounded-xl border bg-white px-4 py-4 sm:px-5 sm:py-5">
-        <div>
-          <h2 className="text-sm font-semibold">Accessibility</h2>
-          <p className="mt-1 text-xs text-gray-500">
-            Highlight anything that makes your place easier to access. This can
-            be crucial for renters with mobility or health needs.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.accessStepFree}
-              onChange={(e) => set("accessStepFree", e.target.checked)}
-            />
-            Step-free entrance
-          </label>
-          <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.accessElevator}
-              onChange={(e) => set("accessElevator", e.target.checked)}
-            />
-            Elevator to unit
-          </label>
-          <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.accessWideDoors}
-              onChange={(e) => set("accessWideDoors", e.target.checked)}
-            />
-            Wide doorways
-          </label>
-          <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.accessBathroom}
-              onChange={(e) => set("accessBathroom", e.target.checked)}
-            />
-            Accessible bathroom
-          </label>
-          <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.accessParking}
-              onChange={(e) => set("accessParking", e.target.checked)}
-            />
-            Reserved accessible parking
-          </label>
-        </div>
-
-        <div>
-          <label className="text-sm font-medium" htmlFor="accessNotes">
-            Accessibility notes
-          </label>
-          <textarea
-            id="accessNotes"
-            className="mt-2 w-full min-h-24 rounded-md border px-3 py-2 text-sm"
-            value={form.accessNotes}
-            onChange={(e) => set("accessNotes", e.target.value)}
-            placeholder="Include measurements, number of steps, ramp details, door widths, or anything else a renter should know."
-          />
-        </div>
-      </section>
-
-      {/* Neighborhood & proximity */}
-      <section className="space-y-4 rounded-xl border bg-white px-4 py-4 sm:px-5 sm:py-5">
-        <div>
-          <h2 className="text-sm font-semibold">Neighborhood & surroundings</h2>
-          <p className="mt-1 text-xs text-gray-500">
-            Describe the vibe of the area and how close key places are.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <div className="text-sm font-medium">Neighborhood vibe</div>
-            <select
-              className="mt-2 block w-full rounded-md border px-3 py-2 text-sm"
-              value={form.neighborhoodVibe}
-              onChange={(e) =>
-                set("neighborhoodVibe", e.target.value as "" | EnumVibe)
-              }
-            >
-              {VIBE_OPTIONS.map((v) => (
-                <option key={v || "blank"} value={v}>
-                  {v === ""
-                    ? "Select…"
-                    : v === "QUIET"
-                    ? "Calm & quiet"
-                    : v}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <div className="text-sm font-medium">Area type</div>
-            <select
-              className="mt-2 block w-full rounded-md border px-3 py-2 text-sm"
-              value={form.areaType}
-              onChange={(e) =>
-                set("areaType", e.target.value as "" | EnumArea)
-              }
-            >
-              {AREA_OPTIONS.map((v) => (
-                <option key={v || "blank"} value={v}>
-                  {v === "" ? "Select…" : v}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <div className="mb-2 text-sm font-medium">Proximity (meters)</div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Input
-              placeholder="Bus"
-              inputMode="numeric"
-              value={form.distanceBusMeters}
-              onChange={(e) => set("distanceBusMeters", e.target.value)}
-            />
-            <Input
-              placeholder="Grocery"
-              inputMode="numeric"
-              value={form.distanceGroceryMeters}
-              onChange={(e) => set("distanceGroceryMeters", e.target.value)}
-            />
-            <Input
-              placeholder="School"
-              inputMode="numeric"
-              value={form.distanceSchoolMeters}
-              onChange={(e) => set("distanceSchoolMeters", e.target.value)}
-            />
-            <Input
-              placeholder="Park"
-              inputMode="numeric"
-              value={form.distanceParkMeters}
-              onChange={(e) => set("distanceParkMeters", e.target.value)}
-            />
-            <Input
-              placeholder="Pharmacy"
-              inputMode="numeric"
-              value={form.distancePharmacyMeters}
-              onChange={(e) =>
-                set("distancePharmacyMeters", e.target.value)
-              }
-            />
-            <Input
-              placeholder="Gym"
-              inputMode="numeric"
-              value={form.distanceGymMeters}
-              onChange={(e) => set("distanceGymMeters", e.target.value)}
-            />
-          </div>
-          <p className="mt-1 text-xs text-gray-500">
-            Leave blank for any you don’t know.
-          </p>
-        </div>
-      </section>
-
-      <div className="flex items-center gap-3">
-        <Button type="submit" disabled={busy} className="rounded-full px-5">
-          {busy ? "Saving…" : "Save & continue"}
-        </Button>
-        <a
-          href={`/landlord/new/basics?id=${encodeURIComponent(listingId)}`}
-          className="text-sm underline"
-        >
-          Back to Basics
-        </a>
+        {error && <p className="text-red-600 text-center pt-4">{error}</p>}
       </div>
-    </form>
+    </div>
   );
 }

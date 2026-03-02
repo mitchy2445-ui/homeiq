@@ -1,4 +1,5 @@
 // src/app/api/listings/[id]/route.ts
+
 import { NextResponse } from "next/server";
 import { prisma as db } from "@/lib/db";
 
@@ -13,7 +14,6 @@ type InsightsBasics = {
   transit?: string;
   amenities?: string;
 
-  // basics extras
   basicsPreferredTenantType?: string;
   basicsPetPolicyNotes?: string;
   basicsParkingDetails?: string;
@@ -26,8 +26,12 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+
     if (!id) {
-      return NextResponse.json({ error: "Missing id" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing id" },
+        { status: 400 }
+      );
     }
 
     const listing = await db.listing.findUnique({
@@ -40,12 +44,23 @@ export async function GET(
     });
 
     if (!listing) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Not found" },
+        { status: 404 }
+      );
     }
 
-    const { images, insights, photos: prismaPhotos, ...rest } = listing;
+    const {
+      images,
+      insights,
+      photos: prismaPhotos,
+      ...rest
+    } = listing;
 
-    // ---------- Normalize photos (fallback to legacy images) ----------
+    /* ----------------------------------------------------------
+       Normalize photos (fallback to legacy images array)
+    ---------------------------------------------------------- */
+
     const legacyImages: string[] = Array.isArray(images)
       ? images.filter((x): x is string => typeof x === "string")
       : [];
@@ -59,13 +74,16 @@ export async function GET(
             sortOrder: p.sortOrder,
           }))
         : legacyImages.map((url, i) => ({
-            id: `${i}`,
+            id: `legacy-${i}`,
             url,
             alt: null as string | null,
             sortOrder: i,
           }));
 
-    // ---------- Extract insights (neighborhood + basics extras) ----------
+    /* ----------------------------------------------------------
+       Extract insights (legacy fallback only)
+    ---------------------------------------------------------- */
+
     const i: InsightsBasics =
       insights &&
       typeof insights === "object" &&
@@ -73,21 +91,17 @@ export async function GET(
         ? (insights as InsightsBasics)
         : {};
 
-    let neighborhoodNotes = rest.neighborhoodNotes ?? null;
-    let transit = rest.transit ?? null;
-    let amenities = rest.amenities ?? null;
+    // Use normalized Prisma fields first
+    const neighborhoodNotes =
+  rest.neighborhoodNotes ?? i.neighborhoodNotes ?? null;
 
-    if (!neighborhoodNotes && typeof i.neighborhoodNotes === "string") {
-      neighborhoodNotes = i.neighborhoodNotes;
-    }
-    if (!transit && typeof i.transit === "string") {
-      transit = i.transit;
-    }
-    if (!amenities && typeof i.amenities === "string") {
-      amenities = i.amenities;
-    }
+const transit =
+  rest.neighborhoodTransitNotes ?? i.transit ?? null;
 
-    // basics “extra” fields (ideal renter, pets, parking, laundry)
+const amenities =
+  rest.neighborhoodHighlights ?? i.amenities ?? null;
+
+    // Basics "extra" fields from legacy insights JSON
     const preferredTenantType =
       typeof i.basicsPreferredTenantType === "string"
         ? i.basicsPreferredTenantType
@@ -108,11 +122,15 @@ export async function GET(
         ? i.basicsLaundryDetails
         : null;
 
-    // ---------- Final payload ----------
+    /* ----------------------------------------------------------
+       Final Response Payload
+    ---------------------------------------------------------- */
+
     return NextResponse.json(
       {
         ...rest,
 
+        // Normalized + fallback merged
         neighborhoodNotes,
         transit,
         amenities,
@@ -128,6 +146,9 @@ export async function GET(
     );
   } catch (e) {
     console.error("GET /api/listings/[id] error", e);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Server error" },
+      { status: 500 }
+    );
   }
 }

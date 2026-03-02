@@ -75,7 +75,7 @@ export default async function NewListingPage() {
       data: {
         title: v.title,
         city: v.city,
-        price: priceCents,
+        priceCents: priceCents,
         beds: v.beds,
         baths: v.baths,
         description: v.description,

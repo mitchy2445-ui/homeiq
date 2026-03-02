@@ -100,7 +100,7 @@ type ListingCardData = Prisma.ListingGetPayload<{
     city: true;
     status: true;
     images: true;
-    price: true; // <-- use price, not priceMonthly
+    priceCents: true; // <-- use price, not priceMonthly
   };
 }>;
 
@@ -117,7 +117,7 @@ async function getData() {
       city: true,
       status: true,
       images: true,
-      price: true, // <-- select price
+     priceCents: true, // <-- select price
     },
   });
 
@@ -291,7 +291,7 @@ function ListingCard({ listing }: { listing: ListingCardData }) {
         <div className="truncate font-medium">{listing.title || "Untitled listing"}</div>
         <div className="text-sm text-muted-foreground">{listing.city}</div>
         <div className="mt-1 text-sm">
-          {toCad(listing.price ?? 0)}/mo
+          {toCad((listing.priceCents ?? 0) / 100)}/mo
         </div>
         <div className="mt-1 text-[11px] uppercase tracking-wide text-muted-foreground">
           {listing.status}

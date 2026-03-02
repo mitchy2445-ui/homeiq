@@ -1,8 +1,10 @@
+// app/listing/[id]/page.tsx
 import Image from "next/image";
 import { notFound, redirect } from "next/navigation";
 import { prisma as db } from "@/lib/db";
 import { requireSession } from "@/lib/auth";
 import ActionsClient from "./ActionsClient";
+import { type Prisma } from "@prisma/client";
 
 import {
   MapPin,
@@ -42,7 +44,12 @@ type Accessibility = {
 type EnumNoise = "VERY_QUIET" | "MOSTLY_QUIET" | "AVERAGE" | "LIVELY";
 type EnumLight = "LOW" | "MODERATE" | "BRIGHT" | "VERY_BRIGHT";
 
-type Photo = { id: string; url: string; alt: string | null; sortOrder: number };
+type Photo = {
+  id: string;
+  url: string;
+  alt: string | null;
+  sortOrder: number;
+};
 
 /* ---- maps copied from Review page so we show amenities nicely ---- */
 
@@ -80,29 +87,30 @@ const AMENITY_LABELS: Record<string, string> = {
 export default async function ListingDetail({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;  // ← Note: params is now Promise in dynamic routes
 }) {
+  // Await params once at the top (fixes the error)
+  const { id } = await params;
+
   const listing = await db.listing.findUnique({
-    where: { id: params.id },
+    where: { id },
     select: {
       id: true,
       status: true,
       title: true,
       city: true,
-      price: true,
+      priceCents: true,
       beds: true,
       baths: true,
       description: true,
       images: true, // legacy
       videoUrl: true,
 
-      // FIXED: Add structured photos
       photos: {
         orderBy: { sortOrder: "asc" },
         select: { id: true, url: true, alt: true, sortOrder: true },
       },
 
-      // basics
       propertyType: true,
       availableFrom: true,
       depositCents: true,
@@ -115,7 +123,6 @@ export default async function ListingDetail({
       parkingSummary: true,
       laundrySummary: true,
 
-      // details / comfort
       smokingAllowed: true,
       heating: true,
       cooling: true,
@@ -126,9 +133,14 @@ export default async function ListingDetail({
       rulesNotes: true,
       accessibility: true,
 
-      // neighborhood
       neighborhoodVibe: true,
       areaType: true,
+      neighborhoodCommunity: true,
+      neighborhoodSafety: true,
+      neighborhoodWalkability: true,
+      neighborhoodNoise: true,
+      neighborhoodTransitNotes: true,
+      neighborhoodHighlights: true,
       distanceBusMeters: true,
       distanceGroceryMeters: true,
       distanceSchoolMeters: true,
@@ -137,13 +149,11 @@ export default async function ListingDetail({
       distanceGymMeters: true,
       neighborhoodNotes: true,
 
-      // pricing / utilities
       utilitiesIncluded: true,
       parkingType: true,
       petPolicy: true,
       laundry: true,
 
-      // landlord
       landlordId: true,
       landlord: {
         select: {
@@ -154,44 +164,40 @@ export default async function ListingDetail({
     },
   });
 
- if (!listing) {
-  return (
-    <main className="mx-auto max-w-6xl px-4 py-8 space-y-6 animate-pulse">
-      <div className="h-8 w-2/3 bg-gray-200 rounded" />
-      <div className="h-4 w-1/3 bg-gray-200 rounded" />
+  if (!listing) {
+    return (
+      <main className="mx-auto max-w-6xl px-4 py-8 space-y-6 animate-pulse">
+        <div className="h-8 w-2/3 bg-gray-200 rounded" />
+        <div className="h-4 w-1/3 bg-gray-200 rounded" />
 
-      <div className="mt-6 grid gap-3 md:grid-cols-3">
-        <div className="h-[320px] bg-gray-200 rounded-2xl md:col-span-2" />
-        <div className="grid grid-cols-2 gap-3">
-          <div className="h-[150px] bg-gray-200 rounded-2xl" />
-          <div className="h-[150px] bg-gray-200 rounded-2xl" />
+        <div className="mt-6 grid gap-3 md:grid-cols-3">
+          <div className="h-[320px] bg-gray-200 rounded-2xl md:col-span-2" />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="h-[150px] bg-gray-200 rounded-2xl" />
+            <div className="h-[150px] bg-gray-200 rounded-2xl" />
+          </div>
         </div>
-      </div>
 
-      <div className="grid gap-8 md:grid-cols-[1fr_380px]">
-        <div className="space-y-4">
-          <div className="h-24 bg-gray-200 rounded-xl" />
-          <div className="h-24 bg-gray-200 rounded-xl" />
+        <div className="grid gap-8 md:grid-cols-[1fr_380px]">
+          <div className="space-y-4">
+            <div className="h-24 bg-gray-200 rounded-xl" />
+            <div className="h-24 bg-gray-200 rounded-xl" />
+          </div>
+          <div className="h-64 bg-gray-200 rounded-xl" />
         </div>
-        <div className="h-64 bg-gray-200 rounded-xl" />
-      </div>
-    </main>
-  );
-}
+      </main>
+    );
+  }
 
-if (listing.status !== "APPROVED") notFound();
-
-  
-
+  if (listing.status !== "APPROVED") notFound();
 
   /* ------------ derived data ------------ */
 
-  // FIXED: Normalize photos (fallback to legacy images, like Review)
   const legacyPhotos = jsonStrArr(listing.images);
-  const structuredPhotos = listing.photos?.map((p) => ({
+  const structuredPhotos = listing.photos?.map((p: Photo) => ({
     id: p.id,
     url: p.url,
-    alt: p.alt,
+    alt: p.alt ?? "",
     sortOrder: p.sortOrder,
   })) ?? [];
   const photos = structuredPhotos.length > 0 ? structuredPhotos : legacyPhotos.map((url, i) => ({
@@ -202,15 +208,11 @@ if (listing.status !== "APPROVED") notFound();
   }));
   const cover = photos[0]?.url ?? "/placeholder.svg";
 
-  const price = centsToDollars(listing.price);
+  const price = centsToDollars(listing.priceCents);
   const deposit =
     typeof listing.depositCents === "number"
       ? `$${(listing.depositCents / 100).toFixed(0)}`
       : null;
-
-  const utilitiesJson = parseUtilities(listing.utilitiesIncluded);
-  const utilitiesIncluded = utilitiesJson.included ?? [];
-  const utilitiesNotIncluded = utilitiesJson.notIncluded ?? [];
 
   const accessibility = parseAccessibility(listing.accessibility);
 
@@ -254,10 +256,11 @@ if (listing.status !== "APPROVED") notFound();
 
   async function contactLandlord(): Promise<void> {
     "use server";
-    const s = await requireSession(`/listing/${params.id}`);
+
+    const s = await requireSession(`/listing/${id}`);
 
     const li = await db.listing.findUnique({
-      where: { id: params.id },
+      where: { id },
       select: { id: true, title: true, landlordId: true },
     });
 
@@ -303,10 +306,11 @@ if (listing.status !== "APPROVED") notFound();
 
   async function toggleFavorite(): Promise<void> {
     "use server";
-    const s = await requireSession(`/listing/${params.id}`);
-    const key = { userId: s.sub, listingId: params.id };
 
-    await db.$transaction(async (tx) => {
+    const s = await requireSession(`/listing/${id}`);
+    const key = { userId: s.sub, listingId: id };
+
+    await db.$transaction(async (tx: Prisma.TransactionClient) => {
       const exists = await tx.favorite.findUnique({
         where: { userId_listingId: key },
         select: { listingId: true },
@@ -317,7 +321,6 @@ if (listing.status !== "APPROVED") notFound();
         await tx.favorite.create({ data: key });
       }
     });
-
   }
 
   /* -------------------- UI -------------------- */
@@ -354,25 +357,35 @@ if (listing.status !== "APPROVED") notFound();
         </p>
       </div>
 
-      {/* FIXED: Media grid with structured photos */}
-      <section className="mt-6 grid gap-3 md:grid-cols-3 md:sticky md:top-20">
-
+      {/* Gallery */}
+      <section className="mt-6 grid gap-3 md:grid-cols-3">
         <div className="relative aspect-[16/10] md:col-span-2 overflow-hidden rounded-2xl">
-          <Image src={cover} alt="Cover" fill className="object-cover" />
+          <Image
+            src={cover}
+            alt={listing.title ?? "Property listing"}
+            fill
+            className="object-cover"
+          />
         </div>
+
         <div className="grid grid-cols-2 gap-3">
           {photos.slice(1, 5).map((photo) => (
             <div
               key={photo.id}
               className="relative aspect-[16/10] overflow-hidden rounded-2xl"
             >
-              <Image src={photo.url} alt={photo.alt ?? ""} fill className="object-cover" />
+              <Image
+                src={photo.url}
+                alt=""
+                fill
+                className="object-cover"
+              />
             </div>
           ))}
         </div>
       </section>
 
-      {/* top facts */}
+      {/* Top facts */}
       <section className="mt-5 flex flex-wrap gap-2">
         <Badge icon={BedDouble} label={`${listing.beds} bedrooms`} />
         <Badge icon={ShowerHead} label={`${listing.baths} bathrooms`} />
@@ -440,7 +453,6 @@ if (listing.status !== "APPROVED") notFound();
                 <h3 className="text-xs font-semibold text-gray-500">
                   Interior features
                 </h3>
-
                 {interiorFeatures.length === 0 ? (
                   <p className="mt-1 text-gray-500">—</p>
                 ) : (
@@ -456,7 +468,6 @@ if (listing.status !== "APPROVED") notFound();
                 <h3 className="text-xs font-semibold text-gray-500">
                   Building amenities
                 </h3>
-
                 {buildingAmenities.length === 0 ? (
                   <p className="mt-1 text-gray-500">—</p>
                 ) : (
@@ -469,21 +480,15 @@ if (listing.status !== "APPROVED") notFound();
               </div>
 
               <div>
-                <h3 className="text-xs font-semibold text-gray-500">
-                  Comfort
-                </h3>
+                <h3 className="text-xs font-semibold text-gray-500">Comfort</h3>
                 <ul className="mt-1 space-y-1">
                   <li>
                     <span className="text-gray-500">Heating: </span>
-                    <span className="font-medium">
-                      {listing.heating ?? "—"}
-                    </span>
+                    <span className="font-medium">{listing.heating ?? "—"}</span>
                   </li>
                   <li>
                     <span className="text-gray-500">Cooling: </span>
-                    <span className="font-medium">
-                      {listing.cooling ?? "—"}
-                    </span>
+                    <span className="font-medium">{listing.cooling ?? "—"}</span>
                   </li>
                   <li>
                     <span className="text-gray-500">Noise level: </span>
@@ -504,7 +509,6 @@ if (listing.status !== "APPROVED") notFound();
                 <h3 className="text-xs font-semibold text-gray-500">
                   Accessibility
                 </h3>
-
                 <ul className="mt-1 list-disc pl-5">
                   {accessibility.stepFree && <li>Step-free entrance</li>}
                   {accessibility.elevator && <li>Elevator</li>}
@@ -515,14 +519,12 @@ if (listing.status !== "APPROVED") notFound();
                   {accessibility.accessibleParking && (
                     <li>Accessible parking</li>
                   )}
-
                   {!accessibility.stepFree &&
                     !accessibility.elevator &&
                     !accessibility.wideDoors &&
                     !accessibility.accessibleBathroom &&
                     !accessibility.accessibleParking && <li>None</li>}
                 </ul>
-
                 {accessibility.notes?.trim() && (
                   <p className="mt-1 text-sm whitespace-pre-line">
                     {accessibility.notes}
@@ -532,26 +534,26 @@ if (listing.status !== "APPROVED") notFound();
             </div>
           </Card>
 
-          {/* Ideal renter */}
-          <Card title="Who it's ideal for">
-            <dl className="grid gap-4 sm:grid-cols-2 text-sm">
-              <SummaryItem
-                label="Ideal renter"
-                text={listing.idealRenterSummary}
-              />
-              <SummaryItem label="Pets" text={listing.petSummary} />
-              <SummaryItem label="Parking" text={listing.parkingSummary} />
-              <SummaryItem label="Laundry" text={listing.laundrySummary} />
-            </dl>
-          </Card>
+          {/* Ideal renter – conditional */}
+          {(listing.idealRenterSummary?.trim() ||
+            listing.petSummary?.trim() ||
+            listing.parkingSummary?.trim() ||
+            listing.laundrySummary?.trim()) && (
+            <Card title="Who it's ideal for">
+              <dl className="grid gap-4 sm:grid-cols-2 text-sm">
+                <SummaryItem label="Ideal renter" text={listing.idealRenterSummary} />
+                <SummaryItem label="Pets" text={listing.petSummary} />
+                <SummaryItem label="Parking" text={listing.parkingSummary} />
+                <SummaryItem label="Laundry" text={listing.laundrySummary} />
+              </dl>
+            </Card>
+          )}
 
           {/* House rules */}
           <Card title="House rules">
             {listing.houseRules?.trim() || listing.rulesNotes?.trim() ? (
               <div className="space-y-3 text-sm whitespace-pre-line">
-                {listing.houseRules?.trim() && (
-                  <p>{listing.houseRules.trim()}</p>
-                )}
+                {listing.houseRules?.trim() && <p>{listing.houseRules.trim()}</p>}
                 {listing.rulesNotes?.trim() && (
                   <p className="text-gray-700">{listing.rulesNotes.trim()}</p>
                 )}
@@ -563,9 +565,7 @@ if (listing.status !== "APPROVED") notFound();
                 </p>
               </div>
             ) : (
-              <p className="text-sm text-gray-500">
-                No house rules provided.
-              </p>
+              <p className="text-sm text-gray-500">No house rules provided.</p>
             )}
           </Card>
 
@@ -580,99 +580,93 @@ if (listing.status !== "APPROVED") notFound();
             </Card>
           )}
 
-          {/* Neighborhood */}
+          {/* Neighborhood – updated rich version (no Distances) */}
           <Card title="Neighborhood">
-            <div className="space-y-4 text-sm">
+            <div className="space-y-6 text-sm">
+              {/* Overview */}
               <div>
-                <span className="text-xs font-semibold text-gray-500">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
                   Overview
-                </span>
-
-                <p className="mt-1 text-gray-800 whitespace-pre-line">
-                  {vibeSummary ||
-                    listing.neighborhoodNotes?.trim() ||
-                    "No neighborhood details."}
+                </h3>
+                <p className="text-gray-800 whitespace-pre-line">
+                  {vibeSummary || "—"}
+                  {listing.neighborhoodHighlights?.trim() && (
+                    <>
+                      <br /><br />
+                      {listing.neighborhoodHighlights.trim()}
+                    </>
+                  )}
+                  {!vibeSummary && !listing.neighborhoodHighlights?.trim() && "No overview provided."}
                 </p>
               </div>
 
-              <div className="grid sm:grid-cols-2 gap-3">
+              {/* Community & Atmosphere */}
+              {(listing.neighborhoodCommunity?.trim() ||
+                listing.neighborhoodSafety?.trim() ||
+                listing.neighborhoodWalkability?.trim() ||
+                listing.neighborhoodNoise?.trim()) && (
                 <div>
-                  <span className="text-xs font-semibold text-gray-500">
-                    Notes
-                  </span>
-                  <p className="mt-1 whitespace-pre-line">
-                    {listing.neighborhoodNotes?.trim() || "—"}
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                    Community & Atmosphere
+                  </h3>
+                  <dl className="grid sm:grid-cols-2 gap-x-8 gap-y-3">
+                    {listing.neighborhoodCommunity?.trim() && (
+                      <div>
+                        <dt className="text-gray-500">Community feel</dt>
+                        <dd className="font-medium">{listing.neighborhoodCommunity.trim()}</dd>
+                      </div>
+                    )}
+                    {listing.neighborhoodSafety?.trim() && (
+                      <div>
+                        <dt className="text-gray-500">Safety</dt>
+                        <dd className="font-medium">{listing.neighborhoodSafety.trim()}</dd>
+                      </div>
+                    )}
+                    {listing.neighborhoodWalkability?.trim() && (
+                      <div>
+                        <dt className="text-gray-500">Walkability</dt>
+                        <dd className="font-medium">{listing.neighborhoodWalkability.trim()}</dd>
+                      </div>
+                    )}
+                    {listing.neighborhoodNoise?.trim() && (
+                      <div>
+                        <dt className="text-gray-500">Noise levels</dt>
+                        <dd className="font-medium">{listing.neighborhoodNoise.trim()}</dd>
+                      </div>
+                    )}
+                  </dl>
+                </div>
+              )}
+
+              {/* Getting Around */}
+              <div className="grid sm:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                    Transit & Commuting
+                  </h3>
+                  <p className="whitespace-pre-line">
+                    {listing.neighborhoodTransitNotes?.trim() || "—"}
                   </p>
                 </div>
 
                 <div>
-                  <span className="text-xs font-semibold text-gray-500">
-                    Transit
-                  </span>
-                  <p className="mt-1 whitespace-pre-line">
-                    {listing.neighborhoodNotes?.trim() || "—"}
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                    Nearby highlights
+                  </h3>
+                  <p className="whitespace-pre-line">
+                    {listing.neighborhoodHighlights?.trim() || "—"}
                   </p>
                 </div>
-
-                <div>
-                  <span className="text-xs font-semibold text-gray-500">
-                    Nearby amenities
-                  </span>
-                  <p className="mt-1 whitespace-pre-line">
-                    {listing.neighborhoodNotes?.trim() || "—"}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <span className="text-xs font-semibold text-gray-500">
-                  Distances
-                </span>
-
-                <ul className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
-                  <Row label="Bus stop" value={meters(listing.distanceBusMeters)} />
-                  <Row
-                    label="Grocery"
-                    value={meters(listing.distanceGroceryMeters)}
-                  />
-                  <Row
-                    label="School"
-                    value={meters(listing.distanceSchoolMeters)}
-                  />
-                  <Row label="Park" value={meters(listing.distanceParkMeters)} />
-                  <Row
-                    label="Pharmacy"
-                    value={meters(listing.distancePharmacyMeters)}
-                  />
-                  <Row label="Gym" value={meters(listing.distanceGymMeters)} />
-                </ul>
               </div>
             </div>
           </Card>
 
-          {/* Pricing */}
+          {/* Pricing & Policies – removed utilities rows */}
           <Card title="Pricing & Policies">
             <ul className="grid sm:grid-cols-2 gap-3 text-sm">
               <Row label="Parking" value={enumLabel(listing.parkingType)} icon={Car} />
               <Row label="Pets" value={enumLabel(listing.petPolicy)} icon={PawPrint} />
               <Row label="Laundry" value={enumLabel(listing.laundry)} icon={Sofa} />
-              <Row
-                label="Utilities included"
-                value={
-                  utilitiesIncluded.length
-                    ? utilitiesIncluded.join(", ")
-                    : "—"
-                }
-                icon={Plug}
-              />
-              <Row
-                label="Not included"
-                value={
-                  utilitiesNotIncluded.length
-                    ? utilitiesNotIncluded.join(", ")
-                    : "—"
-                }
-              />
               <Row
                 label="Smoking"
                 value={listing.smokingAllowed ? "Yes" : "No"}
@@ -684,11 +678,7 @@ if (listing.status !== "APPROVED") notFound();
               />
               <Row
                 label="Min lease"
-                value={
-                  listing.minLeaseMonths
-                    ? `${listing.minLeaseMonths} mo`
-                    : "—"
-                }
+                value={listing.minLeaseMonths ? `${listing.minLeaseMonths} mo` : "—"}
               />
               <Row
                 label="Max occupants"
@@ -721,9 +711,6 @@ if (listing.status !== "APPROVED") notFound();
 
             <div className="mt-2 text-sm text-gray-600">
               {deposit && <div>Deposit: {deposit}</div>}
-              {utilitiesIncluded.length > 0 && (
-                <div>Utilities: {utilitiesIncluded.join(", ")}</div>
-              )}
             </div>
 
             <div className="mt-6 grid gap-3">
@@ -735,14 +722,12 @@ if (listing.status !== "APPROVED") notFound();
 
               {listing.landlordId && (
                 <RequestViewingButton
-                  listingId={listing.id}
+                  listingId={id}
                   landlordId={listing.landlordId}
                 />
               )}
 
               <ActionsClient onToggleFavorite={toggleFavorite} />
-
-
             </div>
 
             <div className="mt-6 rounded-xl border bg-gray-50 p-4 text-sm text-gray-600">
@@ -759,12 +744,10 @@ if (listing.status !== "APPROVED") notFound();
 
   /* ---------------- helpers & small components ---------------- */
 
-  // FIXED: properly handles stringified JSON + arrays
   function jsonStrArr(v: unknown): string[] {
     if (Array.isArray(v)) {
       return v.filter((x) => typeof x === "string");
     }
-
     if (typeof v === "string") {
       try {
         const parsed = JSON.parse(v);
@@ -775,7 +758,6 @@ if (listing.status !== "APPROVED") notFound();
         return [];
       }
     }
-
     return [];
   }
 
@@ -788,12 +770,9 @@ if (listing.status !== "APPROVED") notFound();
     return typeof n === "number" ? `${n} m` : "—";
   }
 
-  // FIXED: normalize enum values so Parking / Pets / Laundry show properly
   function enumLabel(v?: string | null): string {
     if (!v) return "—";
-
     const cleaned = String(v).trim().toUpperCase();
-
     return cleaned
       .replace(/_/g, " ")
       .toLowerCase()
@@ -808,12 +787,6 @@ if (listing.status !== "APPROVED") notFound();
       month: "short",
       day: "numeric",
     });
-  }
-
-  function parseUtilities(v: unknown): UtilitiesJson {
-    return v && typeof v === "object" && !Array.isArray(v)
-      ? (v as UtilitiesJson)
-      : {};
   }
 
   function parseAccessibility(v: unknown): Accessibility {
@@ -841,31 +814,21 @@ if (listing.status !== "APPROVED") notFound();
 
   function prettyNoise(n?: EnumNoise | null): string {
     switch (n) {
-      case "VERY_QUIET":
-        return "Very quiet";
-      case "MOSTLY_QUIET":
-        return "Mostly quiet";
-      case "AVERAGE":
-        return "Average";
-      case "LIVELY":
-        return "Lively / busy";
-      default:
-        return "—";
+      case "VERY_QUIET": return "Very quiet";
+      case "MOSTLY_QUIET": return "Mostly quiet";
+      case "AVERAGE": return "Average";
+      case "LIVELY": return "Lively / busy";
+      default: return "—";
     }
   }
 
   function prettyLight(l?: EnumLight | null): string {
     switch (l) {
-      case "LOW":
-        return "Low";
-      case "MODERATE":
-        return "Moderate";
-      case "BRIGHT":
-        return "Bright";
-      case "VERY_BRIGHT":
-        return "Very bright";
-      default:
-        return "—";
+      case "LOW": return "Low";
+      case "MODERATE": return "Moderate";
+      case "BRIGHT": return "Bright";
+      case "VERY_BRIGHT": return "Very bright";
+      default: return "—";
     }
   }
 
@@ -875,10 +838,8 @@ if (listing.status !== "APPROVED") notFound();
   ): string {
     const v = enumLabel(vibe);
     const a = enumLabel(areaType);
-
     const vValid = v !== "—";
     const aValid = a !== "—";
-
     if (!vValid && !aValid) return "";
     if (vValid && aValid) return `${v} ${a.toLowerCase()} neighborhood.`;
     if (vValid) return `${v} neighborhood.`;

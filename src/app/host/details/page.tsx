@@ -1,14 +1,19 @@
-// src/app/host/details/page.tsx
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+"use client";
+
+import { useSearchParams } from "next/navigation";
+import DetailsForm from "@/components/listings/DetailsForm";
 
 export default function DetailsPage() {
-  return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <h1 className="text-2xl font-semibold">Listing Details</h1>
-      <p className="mt-2 text-gray-600">
-        This step will collect detailed property information.
-      </p>
-    </main>
-  );
+  const searchParams = useSearchParams();
+  const id = searchParams.get("id");
+
+  if (!id) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-red-600 text-xl">
+        Missing listing ID — go back to Basics
+      </div>
+    );
+  }
+
+  return <DetailsForm listingId={id} />;
 }

@@ -34,19 +34,34 @@ export async function POST() {
       );
     }
 
+    // ✅ CREATE TRUE EMPTY DRAFT
     const created = await db.listing.create({
       data: {
         status: "DRAFT",
         landlordId: session.sub,
-        title: "Draft listing",
-        street: "TBD",
-        city: "TBD", 
-        province: "TBD",
-        postal: "TBD",
+
+        title: null,
+        description: null,
+        houseRules: null,
+
+        street: null,
+        aptUnit: null,
+        city: null,
+        province: null,
+        postal: null,
         country: "Canada",
-        beds: 0,
-        baths: 1,
-        priceCents: 1,
+
+        beds: null,
+        baths: null,
+        priceCents: null,
+
+        depositCents: null,
+        maxOccupants: null,
+        minLeaseMonths: null,
+        availableFrom: null,
+
+        furnished: null,
+        smokingAllowed: null,
       },
       select: { id: true },
     });

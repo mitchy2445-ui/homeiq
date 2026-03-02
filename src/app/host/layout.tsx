@@ -6,8 +6,7 @@ export default function HostLayout({ children }: { children: React.ReactNode }) 
       <section className="mx-auto max-w-4xl px-4 py-12">
         <header className="mb-8">
           <div className="inline-flex items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-brand-700 ring-1 ring-brand-100">
-            <span className="h-2 w-2 rounded-full bg-brand-600" />
-            Hosting Setup
+            
           </div>
           <h1 className="mt-3 text-3xl md:text-4xl font-semibold tracking-tight">Become a Landlord</h1>
           <p className="mt-2 text-gray-600 max-w-2xl">
