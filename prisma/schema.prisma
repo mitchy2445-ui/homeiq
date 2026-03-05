@@ -10,7 +10,6 @@ datasource db {
 /**
  * ---------------------------- Enums ----------------------------
  */
-
 enum Status {
   DRAFT
   PENDING
@@ -70,43 +69,44 @@ enum ViewingStatus {
   CANCELLED
 }
 
+enum RoommateType {
+  ROOM_AVAILABLE
+  LOOKING_FOR_ROOM
+}
+
 /**
  * ---------------------------- Models ----------------------------
  */
-
 model User {
-  id           String  @id @default(cuid())
-  email        String  @unique
-  name         String?
-  passwordHash String?
-  role         Role    @default(USER)
-
-  emailVerified   DateTime?
-  emailVerifiedAt DateTime?
-
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  name               String?
+  passwordHash       String?
+  role               Role      @default(USER)
+  emailVerified      DateTime?
+  emailVerifiedAt    DateTime?
   verificationStatus IdStatus  @default(UNVERIFIED)
   verifiedAt         DateTime?
   phoneVerifiedAt    DateTime?
   idCheckProvider    String?
   idCheckSessionId   String?
+  identityStatus     String?
+  idVerifiedAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  identityStatus String?
-  idVerifiedAt   DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  listings           Listing[]
-  verificationTokens VerificationToken[]
-  landlordProfile    LandlordProfile?
-
+  listings                Listing[]
+  verificationTokens      VerificationToken[]
+  landlordProfile         LandlordProfile?
   conversationMemberships ConversationParticipant[] @relation("ConversationMembers")
+  sentMessages            Message[]                 @relation("UserMessages")
+  favorites               Favorite[]
+  renterViewingRequests   ViewingRequest[]          @relation("RenterViewingRequests")
+  landlordViewingRequests ViewingRequest[]          @relation("LandlordViewingRequests")
 
-  sentMessages Message[]  @relation("UserMessages")
-  favorites    Favorite[]
-
-  renterViewingRequests   ViewingRequest[] @relation("RenterViewingRequests")
-  landlordViewingRequests ViewingRequest[] @relation("LandlordViewingRequests")
+  // Roommate feature relations
+  roommateProfile  RoommateProfile?
+  roommateListings RoommateListing[]
 }
 
 model VerificationToken {
@@ -120,8 +120,7 @@ model VerificationToken {
 }
 
 model LandlordProfile {
-  id String @id @default(cuid())
-
+  id     String @id @default(cuid())
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -135,13 +134,11 @@ model LandlordProfile {
   region          String?
   country         String
   postal          String
-
-  idStatus      IdStatus @default(UNVERIFIED)
-  kycProvider   String?
-  kycRef        String?
-  addressDocUrl String?
-
-  phoneOtpHash     String?
+  idStatus        IdStatus  @default(UNVERIFIED)
+  kycProvider     String?
+  kycRef          String?
+  addressDocUrl   String?
+  phoneOtpHash    String?
   phoneOtpExpires DateTime?
 
   createdAt DateTime @default(now())
@@ -153,70 +150,58 @@ model Listing {
   landlordId String?
   landlord   User?   @relation(fields: [landlordId], references: [id])
 
-  // ✅ Draft-safe fields
-  title       String?
-  description String?
-  houseRules  String?
-
-  priceCents Int?
-
-  street   String?
-  aptUnit  String?
-  city     String?
-  province String?
-  postal   String?
-  country  String?
-
-  beds   Int?
-  baths  Int?
-  status Status @default(DRAFT)
-  insights Json?
-  images   Json?
-  videoUrl String?
-  photos   ListingPhoto[]
-
-  propertyType     String?
-  neighborhoodVibe NeighborhoodVibe?
-  areaType         AreaType?
-
+  // Draft-safe fields
+  title                  String?
+  description            String?
+  houseRules             String?
+  priceCents             Int?
+  street                 String?
+  aptUnit                String?
+  city                   String?
+  province               String?
+  postal                 String?
+  country                String?
+  beds                   Int?
+  baths                  Int?
+  status                 Status            @default(DRAFT)
+  insights               Json?
+  images                 Json?
+  videoUrl               String?
+  photos                 ListingPhoto[]
+  propertyType           String?
+  neighborhoodVibe       NeighborhoodVibe?
+  areaType               AreaType?
   distanceBusMeters      Int?
   distanceGroceryMeters  Int?
   distanceSchoolMeters   Int?
   distanceParkMeters     Int?
   distancePharmacyMeters Int?
   distanceGymMeters      Int?
-
-  parkingType   ParkingType?
-  petPolicy     PetPolicy?
-  laundry       LaundryType?
-  accessibility Json?
-
-  heating   String?
-  cooling   String?
-  furnished Boolean?
-
-  utilitiesIncluded Json?
-  minLeaseMonths    Int?
-  maxOccupants      Int?
-  smokingAllowed    Boolean?
-
-  depositCents  Int?
-  availableFrom DateTime?
-
-  idealRenterSummary String?
-  petSummary         String?
-  parkingSummary     String?
-  laundrySummary     String?
-
+  parkingType            ParkingType?
+  petPolicy              PetPolicy?
+  laundry                LaundryType?
+  accessibility          Json?
+  heating                String?
+  cooling                String?
+  furnished              Boolean?
+  utilitiesIncluded      Json?
+  minLeaseMonths         Int?
+  maxOccupants           Int?
+  smokingAllowed         Boolean?
+  depositCents           Int?
+  availableFrom          DateTime?
+  idealRenterSummary     String?
+  petSummary             String?
+  parkingSummary         String?
+  laundrySummary         String?
   noiseLevel             String?
   naturalLight           String?
   interiorNotes          String?
   buildingAmenitiesNotes String?
   rulesNotes             String?
+  neighborhoodNotes      String?
 
-  neighborhoodNotes String?
-
-  // Step 4 – Neighborhood Insights
+  // Neighborhood Insights
   neighborhoodCommunity    String?
   neighborhoodSafety       String?
   neighborhoodWalkability  String?
@@ -224,9 +209,13 @@ model Listing {
   neighborhoodTransitNotes String?
   neighborhoodHighlights   String?
 
+  // Relations
   conversations   Conversation[]   @relation("ListingConversations")
   favoritedBy     Favorite[]
   viewingRequests ViewingRequest[]
+
+  // Roommate feature back-relation (optional — many roommate listings can reference one listing)
+  roommateListings RoommateListing[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -239,15 +228,15 @@ model ListingPhoto {
 
   url       String
   alt       String?
-  sortOrder Int     @default(0)
-
+  sortOrder Int      @default(0)
   createdAt DateTime @default(now())
 }
 
 model Conversation {
-  id            String    @id @default(cuid())
-  listingId     String?
-  listing       Listing?  @relation("ListingConversations", fields: [listingId], references: [id], onDelete: SetNull)
+  id        String   @id @default(cuid())
+  listingId String?
+  listing   Listing? @relation("ListingConversations", fields: [listingId], references: [id], onDelete: SetNull)
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   lastMessageAt DateTime?
@@ -293,20 +282,18 @@ model Favorite {
 }
 
 model ViewingRequest {
-  id         String @id @default(cuid())
+  id         String  @id @default(cuid())
   listingId  String
   renterId   String
   landlordId String
+  note       String?
 
-  note String?
-
-  slot1Start DateTime?
-  slot1End   DateTime?
-  slot2Start DateTime?
-  slot2End   DateTime?
-  slot3Start DateTime?
-  slot3End   DateTime?
-
+  slot1Start  DateTime?
+  slot1End    DateTime?
+  slot2Start  DateTime?
+  slot2End    DateTime?
+  slot3Start  DateTime?
+  slot3End    DateTime?
   chosenStart DateTime?
   chosenEnd   DateTime?
 
@@ -317,4 +304,54 @@ model ViewingRequest {
   listing  Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
   renter   User    @relation("RenterViewingRequests", fields: [renterId], references: [id], onDelete: Cascade)
   landlord User    @relation("LandlordViewingRequests", fields: [landlordId], references: [id], onDelete: Cascade)
+}
+
+// ────────────────────────────────────────────────
+//           ROOMMATE MATCHING FEATURE
+// ────────────────────────────────────────────────
+
+model RoommateProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  age        Int?
+  gender     String?
+  occupation String?
+  bio        String?
+
+  budgetMin  Int?
+  budgetMax  Int?
+  moveInDate DateTime?
+
+  cleanliness   Int? // 1–5 scale
+  socialLevel   Int? // 1–5 scale
+  sleepSchedule String? // e.g. "EARLY", "FLEXIBLE", "NIGHT_OWL"
+  smoking       Boolean?
+  pets          Boolean?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model RoommateListing {
+  id String @id @default(cuid())
+
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  listingId String?
+  listing   Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+
+  type RoommateType
+
+  title       String
+  description String
+
+  preferredGender String?
+  minAge          Int?
+  maxAge          Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
